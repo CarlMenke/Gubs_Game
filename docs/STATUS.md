@@ -197,12 +197,9 @@ Get a spear to fly and kill something, in the sandbox, single-player. In order:
 
 ## Git
 
-Local repo, branch `main`, all work committed. **No remote is configured** —
-`gh` is not installed on this machine, so the "make it a public repo" part of
-the original request is outstanding. To finish it:
+Branch `main`, all work committed and pushed to
+**https://github.com/CarlMenke/Gubs_Game** (public).
 
-```bash
-gh repo create Gubs_Game --public --source=. --remote=origin --push
-# or, without gh: create the repo on github.com, then
-git remote add origin https://github.com/<you>/Gubs_Game.git && git push -u origin main
-```
+`gh` is not installed on this machine. The repo was created through the GitHub
+REST API using the existing token from Git Credential Manager, and `origin` is
+set, so plain `git push` works from here on.
