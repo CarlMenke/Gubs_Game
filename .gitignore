@@ -26,3 +26,12 @@ __pycache__/
 # Scratch
 scratch/
 *.log
+
+# Redundant source-art formats (the glTF copies are what the game imports).
+# Kept on disk, kept out of the repo to hold clone size down.
+assets/Stylized_Nature_MegaKitStandard/FBX/
+assets/Stylized_Nature_MegaKitStandard/FBX (Unity)/
+assets/Stylized_Nature_MegaKitStandard/OBJ/
+assets/Stylized_Nature_MegaKitStandard/Textures/
+assets/Mushroom/base.obj
+desktop.ini
