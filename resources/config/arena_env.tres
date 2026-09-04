@@ -6,7 +6,10 @@
 ;
 ; Two things drive most of the look:
 ;   * ALL ambient comes from the sky (`ambient_light_source = 3`), so retuning
-;     `arena_sky.tres` retunes the fill light on the island for free.
+;     `arena_sky.tres` retunes the fill light on the island for free. The energy
+;     looks high at 2.5 because the source is a night sky: the radiance cubemap
+;     averages out near-black, and at 1.0 anything outside a torch pool crushed
+;     to literal (0, 0, 0) instead of reading as dark.
 ;   * The glow threshold sits above a lit Gub. The Gub is near-saturated yellow;
 ;     with the threshold at 1.0 he wore a permanent halo and read as a light
 ;     source. At 1.45 only torch flames, the moon and emissive props bloom.
@@ -24,7 +27,7 @@ sky = ExtResource("1_arena_sky")
 ambient_light_source = 3
 ambient_light_color = Color(0.35, 0.45, 0.62, 1)
 ambient_light_sky_contribution = 1.0
-ambient_light_energy = 0.55
+ambient_light_energy = 2.5
 reflected_light_source = 2
 tonemap_mode = 3
 tonemap_exposure = 1.0
@@ -65,7 +68,7 @@ fog_sky_affect = 0.06
 fog_height = -14.0
 fog_height_density = 0.06
 volumetric_fog_enabled = true
-volumetric_fog_density = 0.02
+volumetric_fog_density = 0.032
 volumetric_fog_albedo = Color(0.58, 0.72, 0.82, 1)
 volumetric_fog_emission = Color(0.05, 0.09, 0.11, 1)
 volumetric_fog_emission_energy = 0.35

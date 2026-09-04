@@ -37,7 +37,7 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
            upper-body throw layer so throwing works while moving
 - [x] 2.5  Nameplate — billboarded Label3D, team tint, distance fade, occlusion
 - [x] 2.6  Network sync — transform + animation state, interpolation, ownership
-- [ ] 2.7  Ragdoll — physical-bone skeleton built at runtime, death impulse, corpse cleanup
+- [x] 2.7  Ragdoll — physical-bone skeleton built at runtime, death impulse, corpse cleanup
 
 ## Phase 3 — Combat & abilities
 

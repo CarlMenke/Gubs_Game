@@ -20,6 +20,7 @@ const DRIVES := {
 	"crouch": {"move_forward": true, "crouch": true},
 	"jump": {"move_forward": true, "sprint": true, "jump": true},
 	"throw": {"move_forward": true, "sprint": true, "throw_spear": true},
+	"ragdoll": {"move_forward": true, "sprint": true, "ragdoll": true},
 }
 
 var _gub: Gub
@@ -63,6 +64,8 @@ func _physics_process(_delta: float) -> void:
 			_gub.request_jump()
 		if _drive.get("throw_spear", false) and _frames == 20:
 			(_gub.get_node("AnimationTree") as GubAnimator).play_throw()
+		if _drive.get("ragdoll", false) and _frames == 24:
+			_kill_for_test()
 		return
 
 	_gub.input_direction = Input.get_vector("move_left", "move_right",
@@ -78,6 +81,16 @@ func _physics_process(_delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause"):
 		get_tree().quit()
+	if event.is_action_pressed("respawn") and _gub != null and _gub.alive:
+		_kill_for_test()
+
+
+## Stand-in for taking a spear: drop a corpse and take the Gub out of play.
+func _kill_for_test() -> void:
+	var direction := _gub.facing()
+	GubRagdoll.spawn_from(_gub, self, direction * 2.4 + Vector3.UP * 0.6, "spine.002")
+	_gub.alive = false
+	_gub.visible = false
 
 
 # ------------------------------------------------------------------ stage ---

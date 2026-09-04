@@ -42,7 +42,7 @@ shape = SubResource("CapsuleShape3D_body")
 [node name="Model" type="Node3D" parent="."]
 
 [node name="gub" parent="Model" instance=ExtResource("2_model")]
-transform = Transform3D(-0.35, 0, 0, 0, 0.35, 0, 0, 0, -0.35, 0, 0, 0)
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 0)
 
 [node name="AnimationTree" type="AnimationTree" parent="."]
 root_node = NodePath("../Model/gub")

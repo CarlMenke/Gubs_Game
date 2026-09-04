@@ -25,8 +25,8 @@ uniform float void_falloff : hint_range(0.05, 1.0) = 0.42;
 uniform float sky_energy : hint_range(0.0, 4.0) = 1.0;
 
 group_uniforms forest_glow;
-uniform vec3 forest_glow_color : source_color = vec3(0.2633, 0.1329, 0.0331);
-uniform float forest_glow_energy : hint_range(0.0, 2.0) = 0.70;
+uniform vec3 forest_glow_color : source_color = vec3(0.3424, 0.0946, 0.0153);
+uniform float forest_glow_energy : hint_range(0.0, 2.0) = 0.42;
 uniform float forest_glow_band : hint_range(0.02, 0.6) = 0.13;
 
 group_uniforms stars;
@@ -39,7 +39,7 @@ uniform float star_twinkle_speed : hint_range(0.0, 6.0) = 1.3;
 uniform vec3 star_band_axis = vec3(0.36, 0.62, -0.7);
 uniform float star_band_width : hint_range(0.05, 1.0) = 0.34;
 uniform vec3 star_haze_color : source_color = vec3(0.0397, 0.0550, 0.1706);
-uniform float star_haze_energy : hint_range(0.0, 2.0) = 0.30;
+uniform float star_haze_energy : hint_range(0.0, 2.0) = 0.18;
 
 group_uniforms moon;
 // Used only when `moon_follow_light` is off or no DirectionalLight3D exists.
@@ -57,7 +57,7 @@ uniform float moon_halo_falloff : hint_range(4.0, 400.0) = 70.0;
 group_uniforms aurora;
 uniform vec3 aurora_low_color : source_color = vec3(0.0220, 0.3424, 0.1706);
 uniform vec3 aurora_high_color : source_color = vec3(0.0946, 0.0550, 0.3424);
-uniform float aurora_energy : hint_range(0.0, 3.0) = 0.22;
+uniform float aurora_energy : hint_range(0.0, 3.0) = 0.28;
 uniform float aurora_height : hint_range(-0.2, 0.9) = 0.22;
 uniform float aurora_width : hint_range(0.02, 0.6) = 0.085;
 uniform float aurora_speed : hint_range(0.0, 0.5) = 0.035;
@@ -68,9 +68,9 @@ uniform float aurora_curtain : hint_range(0.0, 1.0) = 0.55;
 group_uniforms clouds;
 uniform vec3 cloud_color : source_color = vec3(0.0100, 0.0116, 0.0245);
 uniform vec3 cloud_lit_color : source_color = vec3(0.2330, 0.2738, 0.4770);
-uniform float cloud_opacity : hint_range(0.0, 1.0) = 0.75;
-uniform float cloud_coverage : hint_range(0.0, 1.0) = 0.42;
-uniform float cloud_scale : hint_range(0.2, 8.0) = 1.15;
+uniform float cloud_opacity : hint_range(0.0, 1.0) = 0.50;
+uniform float cloud_coverage : hint_range(0.0, 1.0) = 0.40;
+uniform float cloud_scale : hint_range(0.2, 8.0) = 1.8;
 uniform float cloud_speed : hint_range(0.0, 0.2) = 0.012;
 uniform float cloud_horizon_fade : hint_range(0.0, 0.6) = 0.06;
 // Clouds sit on a finite dome, so walking the island should slide them a hair.
@@ -177,9 +177,17 @@ vec4 vapour(vec3 dir, vec3 cam_pos, float time, int cloud_octaves) {
 	vec2 uv = dir.xz / dome * cloud_scale;
 	uv += cam_pos.xz * cloud_parallax;
 	uv += vec2(time * cloud_speed, time * cloud_speed * 0.42);
-	float n = fbm(uv, cloud_octaves);
-	float cover = smoothstep(cloud_coverage, cloud_coverage + 0.26, n);
+	// Squashing the domain on one axis is what turns fbm blobs into wisps.
+	vec2 wuv = uv * vec2(0.45, 1.8);
+	float n = fbm(wuv, cloud_octaves);
+	// A second, faster layer eats into the first so the edges tatter instead of
+	// closing into cartoon cumulus.
+	float erode = fbm(wuv * 2.9 - vec2(time * cloud_speed * 2.0, 0.0), max(cloud_octaves - 1, 1));
+	n = n * 1.25 - erode * 0.5;
+	float cover = smoothstep(cloud_coverage, cloud_coverage + 0.20, n);
 	cover *= smoothstep(cloud_horizon_fade * 0.2, cloud_horizon_fade + 0.16, dir.y);
+	// Thin them out overhead so the star field owns the zenith.
+	cover *= 1.0 - 0.75 * smoothstep(0.45, 0.95, dir.y);
 	cover *= cloud_opacity;
 
 	vec3 lit = mix(cloud_color, cloud_lit_color, pow(moon_cos, 6.0));
@@ -197,8 +205,9 @@ void sky() {
 	// Godot forbids an early `return` from sky(), so the two passes are an
 	// if/else rather than a guard clause.
 	if (AT_QUARTER_RES_PASS) {
-		// 2 octaves is all that survives a quarter-res buffer anyway.
-		vec4 v = vapour(dir, POSITION, TIME, 2);
+		// Three octaves: at a quarter of the screen this is still cheaper than
+		// one octave would be at full res.
+		vec4 v = vapour(dir, POSITION, TIME, 3);
 		COLOR = v.rgb;
 		ALPHA = v.a;
 	} else {
@@ -209,16 +218,17 @@ void sky() {
 		// Distant forest glow: a warm band hugging the horizon, broken up in
 		// azimuth so it reads as light from somewhere rather than a vignette.
 		float band = 1.0 - clamp(abs(dir.y) / forest_glow_band, 0.0, 1.0);
-		float patchy = 0.45 + 0.55 * fbm(vec2(az * 0.9, 3.7), 2);
+		float patchy = clamp(0.12 + 1.35 * fbm(vec2(az * 1.7, 3.7), 3), 0.0, 1.6);
 		col += forest_glow_color * pow(band, 2.4) * forest_glow_energy * patchy;
 
 		// Below the horizon the island is floating over nothing much.
 		col = mix(col, void_color, 1.0 - smoothstep(-void_falloff, 0.0, dir.y));
 
 		// --- stars ---------------------------------------------------------
-		// Skipped for the radiance cubemap: at 256px a star is sub-texel and only
-		// adds sparkle noise to the ambient light.
-		if (!AT_CUBEMAP_PASS) {
+		// Full-res only. In the radiance cubemap a star is sub-texel and adds
+		// nothing but sparkle noise to the ambient term; in any reduced-res pass
+		// it would alias into crawling dots.
+		if (!AT_CUBEMAP_PASS && !AT_HALF_RES_PASS) {
 			float band_t = dot(dir, normalize(star_band_axis)) / star_band_width;
 			float galactic = exp(-band_t * band_t);
 			float haze_n = fbm(vec2(az * 2.2, dir.y * 3.4), 2);

@@ -4,9 +4,9 @@ extends Node3D
 ##
 ## Nothing here is map geometry — it is the minimum needed to tell whether the
 ## environment is doing its job: a floating slab so the horizon line and the void
-## below it are both in frame, two torches for the warm/cool contrast the map is
-## built around, dark cones to check silhouettes read against the sky, and a
-## saturated yellow ball standing in for a Gub to catch glow blow-out.
+## below it are both in frame, three torches for the warm/cool contrast the map
+## is built around, dark cones to check silhouettes read against the sky, and the
+## Gub plus a saturated yellow ball to catch glow blow-out.
 ##
 ## Usage (the extra arg is read straight off the command line, so this works
 ## through `tools/snapshot.gd` without teaching it about views):
@@ -61,7 +61,7 @@ func _build_environment() -> void:
 	moon.position = MOON_DIR.normalized() * 60.0
 	moon.look_at(Vector3.ZERO, Vector3.UP)
 	moon.light_color = Color(0.62, 0.72, 1.0)
-	moon.light_energy = 0.16
+	moon.light_energy = 0.30
 	moon.light_specular = 0.35
 	moon.shadow_enabled = true
 	moon.directional_shadow_max_distance = 90.0
@@ -79,12 +79,12 @@ func _build_island() -> void:
 	mesh.radial_segments = 48
 	slab.mesh = mesh
 	slab.position = Vector3(0.0, -4.5, 0.0)
-	slab.material_override = _matte(Color(0.10, 0.13, 0.09), 0.95)
+	slab.material_override = _matte(Color(0.17, 0.20, 0.13), 0.95)
 	add_child(slab)
 
 
 func _build_silhouettes() -> void:
-	var dark := _matte(Color(0.045, 0.055, 0.045), 1.0)
+	var dark := _matte(Color(0.06, 0.075, 0.055), 1.0)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 20240912
 	for i in 14:
@@ -135,8 +135,8 @@ func _build_torches() -> void:
 
 		var light := OmniLight3D.new()
 		light.light_color = Color(1.0, 0.62, 0.28)
-		light.light_energy = 5.0
-		light.omni_range = 14.0
+		light.light_energy = 6.5
+		light.omni_range = 16.0
 		light.omni_attenuation = 1.6
 		light.shadow_enabled = true
 		light.light_volumetric_fog_energy = 2.0
@@ -151,10 +151,15 @@ func _build_exposure_targets() -> void:
 	var gub := (load(GUB_PATH) as PackedScene)
 	if gub != null:
 		var node := gub.instantiate() as Node3D
-		node.scale = Vector3.ONE * 0.35
+		add_child(node)
+		# Normalised by measured height rather than the project's 0.35 import
+		# scale, so a re-import of the mesh cannot silently change the size of
+		# the thing the glow threshold is judged against.
+		var tall := _visual_height(node)
+		if tall > 0.0:
+			node.scale = Vector3.ONE * (1.8 / tall)
 		node.position = Vector3(-2.6, 0.0, 3.4)
 		node.rotation.y = 2.6
-		add_child(node)
 
 	var ball := MeshInstance3D.new()
 	var sphere := SphereMesh.new()
@@ -178,6 +183,15 @@ func _build_camera() -> void:
 	cam.position = framing[0]
 	cam.look_at(framing[1], Vector3.UP)
 	cam.current = true
+
+
+func _visual_height(node: Node) -> float:
+	var tallest := 0.0
+	if node is MeshInstance3D:
+		tallest = (node as MeshInstance3D).get_aabb().size.y
+	for child in node.get_children():
+		tallest = maxf(tallest, _visual_height(child))
+	return tallest
 
 
 func _matte(albedo: Color, roughness: float) -> StandardMaterial3D:
