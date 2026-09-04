@@ -1,0 +1,28 @@
+# Godot 4
+.godot/
+/android/
+export_presets.cfg
+*.translation
+
+# Build output
+build/
+*.exe
+*.pck
+*.zip
+!assets/**/*.zip
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Python tooling
+__pycache__/
+*.pyc
+.venv/
+
+# Scratch
+scratch/
+*.log

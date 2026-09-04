@@ -1,0 +1,10 @@
+* text=auto eol=lf
+*.glb binary
+*.gltf text
+*.bin binary
+*.png binary
+*.jpg binary
+*.obj binary
+*.fbx binary
+*.ogg binary
+*.wav binary
