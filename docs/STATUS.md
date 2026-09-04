@@ -263,23 +263,18 @@ Known loose ends in that code:
 
 ---
 
-## Git — there is a commit here that has not been pushed
+## Git
 
-Branch `main`, `origin` is **https://github.com/CarlMenke/Gubs_Game** (public).
+Branch `main`, pushed to **https://github.com/CarlMenke/Gubs_Game** (public).
 
-**`git push` currently fails with a 403.** The credential on this machine is
-`JulianC775`, which has `pull` but not `push` on Carl's repo:
+The repo belongs to CarlMenke; JulianC775 is a collaborator with push rights, so
+plain `git push` works from this machine. If it ever 403s again, that access is
+the first thing to check:
 
 ```bash
 gh api repos/CarlMenke/Gubs_Game --jq '.permissions'
-# {"admin":false,"maintain":false,"pull":true,"push":false,"triage":false}
 ```
 
-The decision taken was to **wait for Carl to add JulianC775 as a collaborator**
-rather than fork or re-home the repo. So the session's work is committed to local
-`main` and nothing else — check `git log origin/main..HEAD` before assuming the
-remote is current, and just run `git push` once access lands.
-
-(Correcting an earlier note here: `gh` *is* installed, at
-`/c/Program Files/GitHub CLI/gh`, authenticated as JulianC775 with `repo`,
-`read:org` and `gist` scopes.)
+`gh` is installed at `/c/Program Files/GitHub CLI/gh`, authenticated as
+JulianC775 with `repo`, `read:org` and `gist` scopes. (An earlier version of this
+document claimed it was not installed. It is.)
