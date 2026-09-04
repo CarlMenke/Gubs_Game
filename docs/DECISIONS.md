@@ -182,7 +182,7 @@ slab, torches, silhouette cones and a Gub, with the camera framing picked by a
 trailing `horizon` / `up` / `edge` argument that `tools/snapshot.gd` passes
 through untouched.
 
-## D-009 — Ragdolls are local and cosmetic, and barely damped
+## D-010 — Ragdolls are local and cosmetic, and barely damped
 Corpses are **not** replicated. Each client builds and simulates its own, so two
 players see the same death land slightly differently. That costs nothing: by the
 time a Gub is a ragdoll it has stopped being part of the game, and nobody makes

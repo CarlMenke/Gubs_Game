@@ -41,7 +41,7 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 
 ## Phase 3 — Combat & abilities
 
-- [ ] 3.1  Spear permanently held in the right hand (bone attachment)
+- [x] 3.1  Spear permanently held in the right hand (bone attachment)
 - [ ] 3.2  Throw — aim, wind-up, release, arcing projectile, trail
 - [ ] 3.3  Hit resolution (server-authoritative), instant kill, spear sticks in the corpse
 - [ ] 3.4  Spear regeneration / retrieval
@@ -57,8 +57,8 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 - [ ] 4.3  Seeded prop scatter — trees, bushes, ferns, grass, flowers, mushrooms, pebbles
 - [ ] 4.4  Hand-placed landmarks — shrine, mushroom grove, rock arch, log bridges, high ground
 - [ ] 4.5  Torches — mesh, flame particles, flickering light, crackle audio
-- [ ] 4.6  Sky — custom shader: dusk gradient, stars, moon, aurora, drifting cloud band
-- [ ] 4.7  WorldEnvironment — volumetric fog, glow, SSAO, tonemap, colour grade
+- [x] 4.6  Sky — custom shader: dusk gradient, stars, moon, aurora, drifting cloud band
+- [x] 4.7  WorldEnvironment — volumetric fog, glow, SSAO, tonemap, colour grade
 - [ ] 4.8  Ambience VFX — fireflies, drifting spores, wind-swayed foliage, falling leaves
 - [ ] 4.9  Ambient audio — forest loop, wind, water
 - [ ] 4.10 Spawn points + traversal pass (scale, sightlines, cover balance)

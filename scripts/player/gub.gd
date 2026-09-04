@@ -86,6 +86,8 @@ const LAYER_DEPLOYABLE := 8
 @export var sync_grounded: bool
 
 var display_name: String = "Gub"
+## The spear in the Gub's hand. Hidden while one is in flight.
+var held_spear: HeldSpear
 var team: int = MatchConfig.TEAM_NONE
 var alive: bool = true
 ## Set while the round is starting or just after a respawn; blocks damage.
@@ -127,6 +129,15 @@ func _ready() -> void:
 	sync_position = global_position
 	sync_yaw = body_yaw
 	_apply_capsule(STAND_HEIGHT)
+	_equip_spear()
+
+
+func _equip_spear() -> void:
+	var skeleton := _model_root.find_child("Skeleton3D", true, false) as Skeleton3D
+	held_spear = HeldSpear.new()
+	held_spear.name = "HeldSpear"
+	add_child(held_spear)
+	held_spear.attach_to(skeleton)
 
 
 func is_local() -> bool:
