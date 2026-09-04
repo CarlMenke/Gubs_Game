@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bgubpreviewassets"]
+
+[ext_resource type="Script" path="res://tools/preview_assets.gd" id="1"]
+
+[node name="PreviewAssets" type="Node3D"]
+script = ExtResource("1")

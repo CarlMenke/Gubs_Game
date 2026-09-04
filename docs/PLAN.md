@@ -10,11 +10,11 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 
 ## Phase 0 — Foundation
 
-- [ ] 0.1  Git repo, `.gitignore`, `.gitattributes`, LICENSE, README
-- [ ] 0.2  Godot project skeleton: `project.godot`, input map, physics layers, render settings
-- [ ] 0.3  Asset pipeline — decimate the 500K-tri source meshes to game-ready density,
+- [x] 0.1  Git repo, `.gitignore`, `.gitattributes`, LICENSE, README
+- [x] 0.2  Godot project skeleton: `project.godot`, input map, physics layers, render settings
+- [x] 0.3  Asset pipeline — decimate the 500K-tri source meshes to game-ready density,
            preserving UVs + skin weights; generate import presets
-- [ ] 0.4  Docs: PLAN.md, DECISIONS.md, ARCHITECTURE.md
+- [x] 0.4  Docs: PLAN.md, DECISIONS.md, ARCHITECTURE.md
 
 ## Phase 1 — Networking & Lobby
 

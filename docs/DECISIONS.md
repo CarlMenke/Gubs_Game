@@ -70,3 +70,47 @@ replicating placement; and it lets the layout be tuned by changing numbers inste
 dragging meshes. Landmarks (shrine, arch, bridges, torch ring, spawn pads) are placed
 explicitly on top of the generated terrain, so the map still reads as designed rather
 than as noise.
+
+## D-008 — The Gub's animation clips needed three fixes before they were usable
+Inspecting `Gub.glb` turned up three problems that would each have been a
+mysterious bug later. All three are fixed in `tools/decimate_assets.py`, so they
+stay fixed across re-imports rather than being patched around in game code.
+
+**1. Every clip shipped twice.** `Idle` has two keyframes — a held pose — while
+`Idle.001` has the 326 keyframes that are the actual animation. That is what a
+Blender NLA export looks like when both the strip and its action get written.
+The pipeline keeps whichever variant has the most keyframes and gives it the
+clean name, so gameplay code asks for `Idle`, not `Idle_001`. Eight real clips
+survive: Idle, SlowRun, FastRun, CrouchWalk, Crouch, Jump, Slide, SpearThrow.
+
+**2. Every clip carried its travel baked into the root joint.** SlowRun walks
+4.5 units forward over its 0.73 s; Jump arcs 12.6 units and rises 3.0. Left in,
+the mesh slides out of the `CharacterBody3D` carrying it. The pipeline locks the
+root joint's horizontal translation always, and its vertical translation only
+when the rise is over 0.5 units — that keeps the weight-shift bob that gives a
+run cycle its life while discarding the leap the physics body is already doing.
+
+That baked travel is useful on the way out, though: it is the speed each clip
+was *authored* to move at, and matching it is the difference between feet that
+grip and feet that skate. The pipeline prints it, and `gub.gd` uses it:
+
+| clip       | authored speed |
+|------------|----------------|
+| CrouchWalk | 1.21 m/s       |
+| SlowRun    | 2.20 m/s       |
+| Slide      | 3.00 m/s       |
+| FastRun    | 4.01 m/s       |
+
+**3. Every clip was authored at a different resting yaw.** Idle sits 65.8° off
+the rest pose, CrouchWalk 33.9°, FastRun 13.4°. One clip at a time this is
+invisible; the moment an AnimationTree blends between two of them the body
+swings sideways on every state change.
+
+Measuring this correctly needs forward kinematics: the root bone carries the
+rig's own rest orientation, so reading a Euler yaw off its quaternion measures
+the bone, not the body. `tools/rig_math.py` walks the rest hierarchy and takes
+the facing from the line between the hips — the one pair of joints that stays
+put while the arms and torso animate. The pipeline then applies a compensating
+yaw to the root joint's rotation keys. Motion *within* a clip is untouched, so a
+throw still winds the body up. After the pass every clip measures within 0.01°
+of the rest facing.

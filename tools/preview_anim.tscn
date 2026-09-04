@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bgubprevanim"]
+
+[ext_resource type="Script" path="res://tools/preview_anim.gd" id="1"]
+
+[node name="PreviewAnim" type="Node3D"]
+script = ExtResource("1")
