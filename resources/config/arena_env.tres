@@ -1,0 +1,83 @@
+[gd_resource type="Environment" load_steps=2 format=3 uid="uid://bq2gubarenaenv"]
+
+; Environment for Whisperbloom Hollow. Deep dusk, torch-lit, deliberately dark
+; but never crushed: every value below is picked so a Gub silhouette still reads
+; against the sky and the terrain edge is still findable outside torch range.
+;
+; Two things drive most of the look:
+;   * ALL ambient comes from the sky (`ambient_light_source = 3`), so retuning
+;     `arena_sky.tres` retunes the fill light on the island for free.
+;   * The glow threshold sits above a lit Gub. The Gub is near-saturated yellow;
+;     with the threshold at 1.0 he wore a permanent halo and read as a light
+;     source. At 1.45 only torch flames, the moon and emissive props bloom.
+;
+; SDFGI is deliberately off: the island is procedurally rebuilt at load and
+; SDFGI's cascades would spend their budget on geometry that never moves after
+; that. Sky ambient plus SSAO gets us the same read for a fraction of the cost.
+
+[ext_resource type="Sky" path="res://resources/config/arena_sky.tres" id="1_arena_sky"]
+
+[resource]
+resource_name = "WhisperbloomEnvironment"
+background_mode = 2
+sky = ExtResource("1_arena_sky")
+ambient_light_source = 3
+ambient_light_color = Color(0.35, 0.45, 0.62, 1)
+ambient_light_sky_contribution = 1.0
+ambient_light_energy = 0.55
+reflected_light_source = 2
+tonemap_mode = 3
+tonemap_exposure = 1.0
+tonemap_white = 6.0
+ssao_enabled = true
+ssao_radius = 1.1
+ssao_intensity = 2.4
+ssao_power = 1.4
+ssao_detail = 0.6
+ssao_horizon = 0.08
+ssao_sharpness = 0.98
+ssao_light_affect = 0.15
+ssao_ao_channel_affect = 0.35
+glow_enabled = true
+glow_levels/1 = 0.0
+glow_levels/2 = 0.35
+glow_levels/3 = 0.85
+glow_levels/4 = 1.0
+glow_levels/5 = 0.7
+glow_levels/6 = 0.25
+glow_levels/7 = 0.0
+glow_normalized = true
+glow_intensity = 0.85
+glow_strength = 1.0
+glow_mix = 0.05
+glow_bloom = 0.0
+glow_blend_mode = 1
+glow_hdr_threshold = 1.45
+glow_hdr_scale = 2.0
+glow_hdr_luminance_cap = 10.0
+fog_enabled = true
+fog_light_color = Color(0.11, 0.16, 0.2, 1)
+fog_light_energy = 0.8
+fog_sun_scatter = 0.05
+fog_density = 0.0028
+fog_aerial_perspective = 0.35
+fog_sky_affect = 0.06
+fog_height = -14.0
+fog_height_density = 0.06
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.02
+volumetric_fog_albedo = Color(0.58, 0.72, 0.82, 1)
+volumetric_fog_emission = Color(0.05, 0.09, 0.11, 1)
+volumetric_fog_emission_energy = 0.35
+volumetric_fog_gi_inject = 0.0
+volumetric_fog_anisotropy = 0.4
+volumetric_fog_length = 96.0
+volumetric_fog_detail_spread = 2.0
+volumetric_fog_ambient_inject = 0.45
+volumetric_fog_sky_affect = 0.08
+volumetric_fog_temporal_reprojection_enabled = true
+volumetric_fog_temporal_reprojection_amount = 0.9
+adjustment_enabled = true
+adjustment_brightness = 1.0
+adjustment_contrast = 1.08
+adjustment_saturation = 1.14

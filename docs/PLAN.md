@@ -30,13 +30,13 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 
 ## Phase 2 — The Gub (character)
 
-- [ ] 2.1  Gub scene — CharacterBody3D, capsule, skinned mesh, skeleton
-- [ ] 2.2  Third-person camera rig — spring arm, collision, shoulder offset, aim zoom
-- [ ] 2.3  Movement — walk / run / sprint, jump, crouch, slide, air control, coyote time
-- [ ] 2.4  AnimationTree — smooth blended state machine across all 8 source clips,
+- [x] 2.1  Gub scene — CharacterBody3D, capsule, skinned mesh, skeleton
+- [x] 2.2  Third-person camera rig — spring arm, collision, shoulder offset, aim zoom
+- [x] 2.3  Movement — walk / run / sprint, jump, crouch, slide, air control, coyote time
+- [x] 2.4  AnimationTree — smooth blended state machine across all 8 source clips,
            upper-body throw layer so throwing works while moving
-- [ ] 2.5  Nameplate — billboarded Label3D, team tint, distance fade, occlusion
-- [ ] 2.6  Network sync — transform + animation state, interpolation, ownership
+- [x] 2.5  Nameplate — billboarded Label3D, team tint, distance fade, occlusion
+- [x] 2.6  Network sync — transform + animation state, interpolation, ownership
 - [ ] 2.7  Ragdoll — physical-bone skeleton built at runtime, death impulse, corpse cleanup
 
 ## Phase 3 — Combat & abilities
