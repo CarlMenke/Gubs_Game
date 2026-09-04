@@ -135,7 +135,12 @@ static func _basis_along(up: Vector3) -> Basis:
 	# Any reference vector works as long as it is not parallel to the bone.
 	var reference := Vector3.FORWARD if absf(up.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT
 	var right := reference.cross(up).normalized()
-	var forward := up.cross(right).normalized()
+	# The third column must be x cross y, not y cross x. Get it the wrong way
+	# round and the basis is a reflection — determinant -1 — which still puts the
+	# capsule along the bone and still *looks* right, so the corpse falls
+	# correctly for about half a second. Then the mirrored joint frames start
+	# fighting the solver and the limbs stretch away to infinity.
+	var forward := right.cross(up).normalized()
 	return Basis(right, up, forward)
 
 

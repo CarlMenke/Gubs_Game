@@ -29,6 +29,8 @@ const MAX_LIFETIME := 6.0
 ## How long a spear stays stuck in the ground before fading out.
 const STUCK_LINGER := 7.0
 const STUCK_FADE := 1.2
+## How far past the impact point the head sinks.
+const BURY_DEPTH := 0.12
 
 const LAYER_WORLD := 1
 const LAYER_PLAYER := 2
@@ -155,8 +157,9 @@ func _stick(normal: Vector3) -> void:
 	_stuck = true
 	set_process_priority(0)
 	# Bury the head a little and let the shaft keep the angle it arrived at, so
-	# a spear in the dirt reads as thrown rather than placed.
-	global_position -= _velocity.normalized() * -0.12
+	# a spear in the dirt reads as thrown rather than placed. The tip is at the
+	# origin, so pushing *along* the flight direction sinks it into the surface.
+	global_position += _velocity.normalized() * BURY_DEPTH
 	_velocity = Vector3.ZERO
 	if normal.length_squared() > 0.001:
 		# A slight lean toward the surface normal stops spears from lying flush

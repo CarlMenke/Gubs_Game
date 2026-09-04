@@ -47,6 +47,9 @@ var config: MatchConfig = MatchConfig.new()
 
 var is_host: bool = false
 var in_session: bool = false
+## True in a solo session with no socket. Everything else about it — authority,
+## RPC shape, the roster — is identical to hosting, on purpose.
+var is_offline: bool = false
 ## Set by MatchState; the host refuses new joiners into a running match unless
 ## they are joining as spectators.
 var match_running: bool = false
@@ -84,6 +87,30 @@ func host_lobby(port: int = DEFAULT_PORT) -> bool:
 	roster_changed.emit()
 	joined_lobby.emit()
 	return true
+
+
+## Start a one-player session that opens no port at all.
+##
+## `OfflineMultiplayerPeer` reports itself as peer 1 and as the server, so every
+## `is_host` branch, every `@rpc` call and every authority check downstream takes
+## exactly the path it would take when hosting for real — the `rpc()` half simply
+## reaches nobody, and the `rpc()`-then-call-locally pattern used throughout the
+## game still delivers the local half. That is the point: the testbeds and any
+## future single-player mode exercise the shipping code rather than a parallel
+## offline branch that can rot without anyone noticing.
+func start_offline() -> void:
+	leave_lobby(Leave.LOCAL_REQUEST, "", false)
+
+	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
+	is_host = true
+	in_session = true
+	is_offline = true
+	_bound_port = 0
+	config = MatchConfig.new()
+
+	players = {1: _make_player(Settings.sanitized_player_name(), 0)}
+	roster_changed.emit()
+	joined_lobby.emit()
 
 
 func join_lobby(code: String) -> bool:
@@ -126,6 +153,7 @@ func leave_lobby(reason: Leave = Leave.LOCAL_REQUEST, message: String = "",
 	var was_in_session := in_session
 	is_host = false
 	in_session = false
+	is_offline = false
 	match_running = false
 	players.clear()
 	roster_changed.emit()

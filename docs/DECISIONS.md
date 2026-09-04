@@ -201,3 +201,41 @@ It worked — so well that a Gub killed while standing still simply *stayed
 standing*, held up by its own joint limits. A ragdoll that does not fall over is
 worse than one that jitters. Damping is now near zero (0.02 / 0.22), joints are
 slack (softness 0.92), and `can_sleep` handles the settling instead.
+
+## D-011 — The testbeds run the real match, not a parallel offline branch
+`Net.start_offline()` opens a session on an `OfflineMultiplayerPeer`: peer id 1,
+`is_server()` true, no socket, no port, no firewall prompt. Everything
+downstream — every `Net.is_host` branch, every `@rpc`, every authority check —
+then takes exactly the path it takes when hosting for real. The `rpc()` half of
+the codebase's `rpc()`-then-call-locally pattern simply reaches nobody, and the
+local half still runs.
+
+The alternative was an `if offline:` branch inside `GubCombat`. That would have
+been three lines and it would have been wrong: the offline path is the one the
+testbeds exercise every day and the networked path is the one that ships, so any
+divergence between them rots in exactly the direction that hurts.
+
+`tools/combat_range.tscn` builds on this. It writes fake entries straight into
+`Net.players` for peer ids in the 900s, and `MatchState` spawns a Gub for each
+without ever asking whether the peer behind one is real. The opponents are
+therefore *remote* Gubs to the running client — no input, no gravity, no camera —
+which is both what a target dummy should be and the only regular look anyone
+takes at the remote-Gub code path before eight people do. Two of the three bugs
+found on the first run of that scene were remote-Gub bugs.
+
+## D-012 — Snapshot warmup is counted in physics ticks
+`tools/snapshot.gd` used to count its own `_process` calls. On a fast card that
+loop runs at several hundred frames a second, so "90 frames" meant a different
+amount of *game* time on every machine and in every window size — and the first
+few frames are the slow ones (scene load, shader compilation), during which the
+physics engine catches up by running several ticks inside one draw.
+
+It now caps `Engine.max_fps` to the physics rate and waits on
+`Engine.get_physics_frames()`, so one warmup unit is one physics tick and a scene
+that scripts itself off `_physics_process` is caught at the moment it intended.
+
+This is not a tidiness fix. Every visual check in Phases 2 and 4 was made through
+this tool, and the ragdoll was signed off on a frame that — under the old
+counter — was about 0.2 s after death. The corpse pulls itself apart at 0.5 s.
+A verification loop that silently samples earlier than you asked will certify
+broken things, and did.

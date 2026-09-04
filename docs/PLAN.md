@@ -39,14 +39,18 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
            upper-body throw layer so throwing works while moving
 - [x] 2.5  Nameplate — billboarded Label3D, team tint, distance fade, occlusion
 - [x] 2.6  Network sync — transform + animation state, interpolation, ownership
-- [x] 2.7  Ragdoll — physical-bone skeleton built at runtime, death impulse, corpse cleanup
+- [ ] 2.7  Ragdoll — physical-bone skeleton built at runtime, death impulse, corpse cleanup
+           *(built, and the first half-second is right; after that the bodies pull
+           apart. Was believed done — see the "Ragdolls are broken" entry in STATUS.)*
 
 ## Phase 3 — Combat & abilities
 
 - [x] 3.1  Spear permanently held in the right hand (bone attachment)
-- [ ] 3.2  Throw — aim, wind-up, release, arcing projectile, trail
-- [ ] 3.3  Hit resolution (server-authoritative), instant kill, spear sticks in the corpse
-- [ ] 3.4  Spear regeneration / retrieval
+- [x] 3.2  Throw — aim, wind-up, release, arcing projectile
+- [ ] 3.2a Spear trail
+- [x] 3.3  Hit resolution (server-authoritative), instant kill
+- [ ] 3.3a Spear sticks in the corpse (today a body hit frees the projectile)
+- [x] 3.4  Spear regeneration — the hand empties on the throw and refills on the cooldown
 - [ ] 3.5  Mushroom shield — deployed in front of the Gub, blocks spears, timed/HP, cooldown
 - [ ] 3.6  Lure — thrown, arms on landing, briefly yanks nearby Gubs in and holds them
 - [ ] 3.7  Death & respawn — spawn points, spawn protection, fall-off-island death

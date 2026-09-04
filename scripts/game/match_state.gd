@@ -247,12 +247,19 @@ func _create_gub(peer_id: int, spawn: Transform3D) -> void:
 	gub.peer_id = peer_id
 	gub.display_name = Net.player_name(peer_id)
 	gub.team = Net.player_team(peer_id)
-	_players_root.add_child(gub)
-	# Ownership has to be set after the node is in the tree, or the
-	# MultiplayerSynchronizer under it starts out pointed at the wrong peer.
+	# Ownership is set *before* the node enters the tree, which is also what
+	# Godot's own spawner pattern does. Set it afterwards and every child whose
+	# `_ready` branches on `is_local()` runs once believing it belongs to this
+	# client: in particular each remote Gub's camera rig makes itself current, so
+	# the last Gub spawned steals the viewport and the player spends the match
+	# looking out of somebody else's head.
 	gub.set_multiplayer_authority(peer_id)
-	gub.global_transform = spawn
-	gub.body_yaw = spawn.basis.get_euler().y
+	_players_root.add_child(gub)
+	# `revive_at` rather than assigning the transform: it also seeds the
+	# replicated fields. Without that, every other peer's copy starts with
+	# `sync_position` at the arena origin and visibly slides in from the middle
+	# of the map before the owner's first packet arrives.
+	gub.revive_at(spawn)
 	gub.grant_invulnerability(config().spawn_protection)
 
 	var plate := gub.get_node_or_null("Nameplate") as Nameplate
@@ -346,15 +353,19 @@ func _apply_death(victim_id: int, killer_id: int, cause: Gub.Cause,
 	player_killed.emit(victim_id, killer_id, cause)
 	if victim_id == multiplayer.get_unique_id():
 		local_death.emit(config().respawn_delay)
-		var rig := victim.get_node_or_null("CameraRig") as GubCamera if is_instance_valid(victim) else null
-		if rig != null:
-			rig.shake(1.4)
+		_shake(victim, 1.4)
 	elif killer_id == multiplayer.get_unique_id():
-		var killer: Gub = gubs.get(killer_id)
-		if is_instance_valid(killer):
-			var rig2 := killer.get_node_or_null("CameraRig") as GubCamera
-			if rig2 != null:
-				rig2.shake(0.35)
+		_shake(gubs.get(killer_id), 0.35)
+
+
+## Kick the camera of one Gub, if that Gub still exists and is the one this
+## client is looking through.
+func _shake(gub: Gub, strength: float) -> void:
+	if not is_instance_valid(gub):
+		return
+	var rig := gub.get_node_or_null("CameraRig") as GubCamera
+	if rig != null:
+		rig.shake(strength)
 
 
 ## Note that `attacker` hurt `victim` without killing them, so a subsequent fall

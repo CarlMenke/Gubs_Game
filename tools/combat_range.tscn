@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bgubcombatrange"]
+
+[ext_resource type="Script" path="res://tools/combat_range.gd" id="1"]
+
+[node name="CombatRange" type="Node3D"]
+script = ExtResource("1")

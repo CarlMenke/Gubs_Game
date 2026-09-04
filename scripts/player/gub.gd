@@ -255,8 +255,16 @@ func _end_slide() -> void:
 	_slide_cooldown = SLIDE_COOLDOWN
 
 
+## Remote Gubs never call `move_and_slide` and never run the slide timer, so on
+## anything but the owning client these read the replicated flags instead. Left
+## as `is_on_floor()` and `_slide_time`, a remote Gub is permanently airborne and
+## never sliding, and the animator plays the Jump clip at everyone else forever.
 func is_sliding() -> bool:
-	return _slide_time > 0.0
+	return _slide_time > 0.0 if is_local() else sync_sliding
+
+
+func is_grounded() -> bool:
+	return is_on_floor() if is_local() else sync_grounded
 
 
 func is_crouching() -> bool:

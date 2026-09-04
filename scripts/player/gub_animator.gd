@@ -188,7 +188,7 @@ func _process(delta: float) -> void:
 	_slide = move_toward(_slide, 1.0 if _body.is_sliding() else 0.0,
 		SLIDE_BLEND_SPEED * delta)
 
-	var airborne_target := 0.0 if _body.is_on_floor() else 1.0
+	var airborne_target := 0.0 if _body.is_grounded() else 1.0
 	var airborne_speed := AIRBORNE_RISE_SPEED if airborne_target > _airborne \
 		else AIRBORNE_FALL_SPEED
 	_airborne = move_toward(_airborne, airborne_target, airborne_speed * delta)

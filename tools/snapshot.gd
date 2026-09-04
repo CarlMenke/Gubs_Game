@@ -7,23 +7,32 @@ extends SceneTree
 ## shaders, GPU particles and any `_ready` that spawns geometry all need a few
 ## frames before the first frame is representative.
 ##
+## The frame rate is pinned to the physics rate on purpose. Uncapped, this loop
+## runs at several hundred frames a second on a fast card, so `warmup_frames`
+## would mean a different amount of *game* time on every machine — and a scene
+## that scripts itself off `_physics_process` (the combat range fires its throw
+## on frame 20) would be caught at a different moment each run. Capped, one
+## warmup frame is one physics tick, everywhere.
+##
 ## Usage:
 ##   Godot --path . --resolution 1280x720 --script tools/snapshot.gd -- \
-##       res://scenes/whatever.tscn out.png [warmup_frames]
+##       res://scenes/whatever.tscn out.png [warmup_physics_ticks]
 
 const DEFAULT_WARMUP := 30
 
 var _target: Node = null
 var _out_path: String = "snapshot.png"
 var _warmup: int = DEFAULT_WARMUP
-var _frame: int = 0
 var _failed: bool = false
 
 
 func _initialize() -> void:
+	Engine.max_fps = int(ProjectSettings.get_setting(
+		"physics/common/physics_ticks_per_second", 60))
+
 	var args := OS.get_cmdline_user_args()
 	if args.size() < 2:
-		push_error("snapshot.gd: expected <scene.tscn> <out.png> [warmup_frames]")
+		push_error("snapshot.gd: expected <scene.tscn> <out.png> [warmup_physics_ticks]")
 		_failed = true
 		return
 
@@ -46,8 +55,11 @@ func _initialize() -> void:
 func _process(_delta: float) -> bool:
 	if _failed:
 		return true
-	_frame += 1
-	if _frame < _warmup:
+	# Counted in *physics* ticks, not draw calls. The first few draws are slow
+	# (scene load, shader compilation) and the physics engine catches up by
+	# running several ticks inside one of them, so counting draws would fire the
+	# shot a good half-second early and blame the scene for it.
+	if Engine.get_physics_frames() < _warmup:
 		return false
 
 	# The viewport texture is only valid after the frame has actually been drawn.

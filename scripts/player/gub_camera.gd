@@ -166,6 +166,22 @@ func aim_ray() -> Dictionary:
 	}
 
 
+## Swing the rig until the crosshair is on `point`.
+##
+## Solved from the *camera's* position rather than the rig's, because the camera
+## sits behind and to one side: aiming the rig at a target leaves the crosshair a
+## shoulder-width off it at every distance. Moving the rig moves the camera, so
+## one call gets close and calling it again on the next frame converges — which
+## is what the scripted testbeds do.
+func look_at_point(point: Vector3) -> void:
+	var to := point - _camera.global_position
+	if to.length_squared() < 0.0001:
+		return
+	to = to.normalized()
+	_yaw = atan2(-to.x, -to.z)
+	_pitch = clampf(asin(clampf(to.y, -1.0, 1.0)), PITCH_MIN, PITCH_MAX)
+
+
 func camera() -> Camera3D:
 	return _camera
 
