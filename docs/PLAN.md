@@ -1,5 +1,7 @@
 # GUB — Master Build Plan
 
+> Current position and how to resume: **`docs/STATUS.md`**.
+
 A match-based 3rd-person multiplayer game in Godot 4.7.2. Players are GUBs — small yellow
 aliens — fighting on a floating enchanted-forest island with instant-kill thrown spears.
 

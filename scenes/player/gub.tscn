@@ -1,10 +1,11 @@
-[gd_scene load_steps=8 format=3 uid="uid://bgubplayer001"]
+[gd_scene load_steps=9 format=3 uid="uid://bgubplayer001"]
 
 [ext_resource type="Script" path="res://scripts/player/gub.gd" id="1_body"]
 [ext_resource type="PackedScene" path="res://art/generated/gub.glb" id="2_model"]
 [ext_resource type="Script" path="res://scripts/player/gub_animator.gd" id="3_anim"]
 [ext_resource type="Script" path="res://scripts/player/gub_camera.gd" id="4_cam"]
 [ext_resource type="Script" path="res://scripts/player/nameplate.gd" id="5_plate"]
+[ext_resource type="Script" path="res://scripts/player/gub_combat.gd" id="6_combat"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
 radius = 0.38
@@ -67,7 +68,8 @@ far = 400.0
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.05, 0)
 script = ExtResource("5_plate")
 
-[node name="HandAnchor" type="Node3D" parent="."]
+[node name="Combat" type="Node" parent="."]
+script = ExtResource("6_combat")
 
 [node name="Sync" type="MultiplayerSynchronizer" parent="."]
 replication_config = SubResource("SceneReplicationConfig_gub")

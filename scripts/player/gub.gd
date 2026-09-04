@@ -70,6 +70,14 @@ const CROUCH_TRANSITION := 9.0
 ## responsive, slow enough that the turn reads as a turn.
 const TURN_SPEED := 14.0
 
+## Lure. Once caught, the Gub is dragged toward the crystal until it is inside
+## LURE_GRIP metres, then pinned there for the rest of the hold. Jumping is
+## blocked for the duration — the lure is meant to feel like being grabbed, and
+## an escape hatch would make it never worth throwing.
+const LURE_GRIP := 1.1
+const LURE_MAX_SPEED := 11.0
+const LURE_PIN_DAMP := 26.0
+
 ## Physics layers, from project.godot.
 const LAYER_WORLD := 1
 const LAYER_PLAYER := 2
@@ -111,6 +119,10 @@ var _view_basis: Basis = Basis.IDENTITY
 ## of travel, so a thrown spear goes where the crosshair is.
 var _face_view: bool = false
 
+var _lure_centre: Vector3 = Vector3.ZERO
+var _lure_strength: float = 0.0
+var _lure_until: float = 0.0
+
 @onready var _collision: CollisionShape3D = $Collision
 @onready var _model_root: Node3D = $Model
 @onready var _capsule: CapsuleShape3D = ($Collision as CollisionShape3D).shape as CapsuleShape3D
@@ -125,6 +137,7 @@ func _ready() -> void:
 	# scenery during a fight feels broken even when it is technically correct.
 	wall_min_slide_angle = deg_to_rad(12.0)
 
+	add_to_group("gubs")
 	body_yaw = rotation.y
 	sync_position = global_position
 	sync_yaw = body_yaw
@@ -163,8 +176,11 @@ func _physics_process(delta: float) -> void:
 	_apply_gravity(delta)
 	_handle_slide(delta)
 	_handle_crouch(delta)
-	_handle_movement(delta)
-	_handle_jump()
+	if is_lured():
+		_handle_lure(delta)
+	else:
+		_handle_movement(delta)
+		_handle_jump()
 
 	var grounded_before := is_on_floor()
 	_fall_speed = -velocity.y
@@ -264,6 +280,38 @@ func _handle_movement(delta: float) -> void:
 		horizontal = horizontal.move_toward(Vector3.ZERO, friction * delta)
 	velocity.x = horizontal.x
 	velocity.z = horizontal.z
+
+
+## Called on the caught Gub's own client, because movement is client-authoritative
+## and the host cannot simply move the body itself.
+func apply_lure(centre: Vector3, strength: float, duration: float) -> void:
+	_lure_centre = centre
+	_lure_strength = strength
+	_lure_until = Time.get_ticks_msec() * 0.001 + duration
+	if is_sliding():
+		_end_slide()
+
+
+func is_lured() -> bool:
+	return Time.get_ticks_msec() * 0.001 < _lure_until
+
+
+func _handle_lure(delta: float) -> void:
+	var to_centre := _lure_centre - (global_position + Vector3.UP * 0.6)
+	var distance := to_centre.length()
+	if distance > LURE_GRIP:
+		velocity += to_centre.normalized() * _lure_strength * delta
+		# Cap it, or a long pull accelerates the Gub into the crystal hard enough
+		# to launch it off the far side of the island.
+		var horizontal := Vector3(velocity.x, 0.0, velocity.z)
+		if horizontal.length() > LURE_MAX_SPEED:
+			horizontal = horizontal.normalized() * LURE_MAX_SPEED
+			velocity.x = horizontal.x
+			velocity.z = horizontal.z
+		return
+	# Arrived: pinned until the hold expires.
+	velocity.x = move_toward(velocity.x, 0.0, LURE_PIN_DAMP * delta)
+	velocity.z = move_toward(velocity.z, 0.0, LURE_PIN_DAMP * delta)
 
 
 func _wish_direction() -> Vector3:
@@ -413,6 +461,7 @@ func revive_at(spawn: Transform3D) -> void:
 	_model_root.rotation.y = body_yaw
 	_slide_time = 0.0
 	_crouch_blend = 0.0
+	_lure_until = 0.0
 	_apply_capsule(STAND_HEIGHT)
 	_publish()
 	respawned.emit()
