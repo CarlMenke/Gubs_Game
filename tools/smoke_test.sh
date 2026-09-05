@@ -89,7 +89,10 @@ echo "rendered checks (a window will flash)"
 check "ragdoll survives landing" "ragdoll_stability: PASS" \
     "$GODOT" --path "$ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
     res://tools/ragdoll_stability.tscn "$LOG_DIR/ragdoll.png" 160
-check "spear kills" "combat_range: Gub killed" \
+# Match on the victim, not the killer. The killer's name is the local player
+# setting, which is persisted in Godot's user-data directory (shared by every
+# checkout of this project) and is whatever anyone last typed into a name box.
+check "spear kills" "killed Dummy 1" \
     "$GODOT" --path "$ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
     res://tools/combat_range.tscn "$LOG_DIR/hit.png" 70 hit
 check "lure catches" "combat_range: lure caught 1" \

@@ -31,6 +31,12 @@ const STUCK_LINGER := 7.0
 const STUCK_FADE := 1.2
 ## How far past the impact point the head sinks.
 const BURY_DEPTH := 0.12
+## How long a spear that struck a Gub waits for a corpse to claim it before
+## giving up and removing itself. The host adopts it within the same frame; a
+## client has to wait for the death to arrive over the network. Anything still
+## unclaimed after this hit someone who did not die — a team-mate with friendly
+## fire off, or a kill the host declined — and must not be left in them.
+const ADOPTION_GRACE := 0.75
 
 const LAYER_WORLD := 1
 const LAYER_PLAYER := 2
@@ -46,6 +52,8 @@ var _stuck: bool = false
 var _stuck_age: float = 0.0
 ## Set once a corpse has taken ownership of this spear.
 var _embedded: bool = false
+## Seconds spent waiting for a corpse to claim this spear.
+var _pending_age: float = 0.0
 var _model: Node3D
 var _thrower: Gub
 var _trail: SpearTrail
@@ -175,12 +183,20 @@ func _nearest_bone(victim: Gub, point: Vector3) -> String:
 func _stick_in(victim: Gub, point: Vector3, bone: String) -> void:
 	_stuck = true
 	_stuck_age = 0.0
+	_pending_age = 0.0
 	global_position = point + _velocity.normalized() * BURY_DEPTH
 	_velocity = Vector3.ZERO
 	AudioDirector.play_3d_varied(AudioDirector.SPEAR_HIT_BODY, point)
 	if _trail != null:
 		_trail.begin_fade()
 		_trail = null
+	# Hidden until a corpse claims it. Whether this hit is a kill at all is the
+	# host's decision and has not been made yet — with friendly fire off, a
+	# spear thrown at a team-mate stops here and nobody dies. Staying visible
+	# through that would leave a spear sticking out of a living player forever.
+	# On the host, adoption happens inside the same frame, so this is invisible
+	# in both senses.
+	visible = false
 	victim.embed_spear(self, bone)
 
 
@@ -208,6 +224,13 @@ func _tick_stuck(delta: float) -> void:
 	# A spear that ended up in a body is owned by the corpse and disappears when
 	# the corpse does; only one stuck in the scenery times itself out.
 	if _embedded:
+		return
+	if not visible:
+		# Waiting to be adopted. If that never happens, the Gub it struck did
+		# not die and this spear has no business existing any more.
+		_pending_age += delta
+		if _pending_age > ADOPTION_GRACE:
+			queue_free()
 		return
 	_stuck_age += delta
 	if _stuck_age < STUCK_LINGER:
@@ -240,3 +263,4 @@ func is_stuck() -> bool:
 ## bone, so it stops running its own fade-out timer.
 func mark_embedded() -> void:
 	_embedded = true
+	visible = true
