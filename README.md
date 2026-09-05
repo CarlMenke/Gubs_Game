@@ -25,15 +25,25 @@ cd Gubs_Game
 godot --path .            # or open project.godot in the editor
 ```
 
-On this machine Godot is not on `PATH`, and **the `.exe` in the download path is
-a directory**, which catches everyone once:
+**It has to be 4.7.** Godot 4.6 does not politely refuse this project — it fails
+to parse it, with a wall of `Too many arguments for "add_blend_point()"` that
+reads exactly like a bug in this repository and is not one. That method gained a
+fourth argument in 4.7. The scripts below find the engine themselves and reject a
+4.6 binary rather than running it, but if you are invoking Godot by hand, check
+`--version` first.
+
+Godot is not on `PATH` on either of the machines this is developed on:
 
 ```bash
+# macOS — note that /Applications/Godot.app may well be an older one
+GODOT="$HOME/Downloads/Godot_v4.7.2-stable_macos/Godot.app/Contents/MacOS/Godot"
+
+# Windows — the `.exe` in this path is a DIRECTORY, which catches everyone once
 GODOT="$HOME/Downloads/Godot_v4.7.2-stable_win64.exe/Godot_v4.7.2-stable_win64_console.exe"
 ```
 
-Use the `_console` binary for anything you want output from — the plain one
-detaches from the terminal and prints nowhere.
+On Windows use the `_console` binary for anything you want output from — the
+plain one detaches from the terminal and prints nowhere.
 
 ### Controls
 
@@ -99,9 +109,14 @@ bash tools/smoke_test.sh
 ```
 
 Everything that can be checked without a person watching: the headless import,
-the match rules, a ragdoll that has to survive hitting the ground, and the three
-combat modes that report what they did. Run it before committing anything that
-touches gameplay.
+the invite codes, the match rules, **a full playthrough from the main menu to the
+results screen**, a ragdoll that has to survive hitting the ground, and the three
+combat modes that report what they did. Seven checks, about two minutes. It finds
+Godot by itself. Run it before committing anything that touches gameplay.
+
+The playthrough is the one that earns its keep. Every other check looks at a
+single seam; only that one walks the joins between them, and the first time it
+ran it found a hang that would have shipped.
 
 It fails on any `SCRIPT ERROR` as well as on a bad exit code, because Godot
 prints one and carries straight on — a clean exit proves nothing by itself.
@@ -122,7 +137,10 @@ and `tools/` is full of scenes for it:
 | `preview_assets`, `preview_anim`, `preview_grip` | the art, the clips, the spear in the hand |
 | `preview_ragdoll`, `ragdoll_stability` | how a corpse falls, and whether it survives |
 | `preview_sky` | the sky and environment |
-| `match_rules.tscn` | 42 assertions across 8 scoring scenarios, headless |
+| `preview_island` | **the map** — nine framings, `match` for real Gubs, `hud` to keep the HUD |
+| `playthrough.tscn` | the whole flow, menu to results, 39 assertions, headless |
+| `match_rules.tscn` | 60 assertions across 9 scoring scenarios, headless |
+| `net_loopback.tscn` | two real processes over a real socket. Not in the gate — it binds a port |
 | `inspect_scene.gd` | dump a scene's tree, clips, bones and triangle counts |
 
 `combat_range` runs the **real match path** — an offline session on `Net`, a

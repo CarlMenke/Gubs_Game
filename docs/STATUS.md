@@ -3,280 +3,225 @@
 Resume point for GUB. Read this first, then `docs/PLAN.md` (the full task list,
 with checkboxes) and `docs/DECISIONS.md` (why things are the way they are).
 
-Last updated: 2026-09-04, at a deliberate hand-off point.
+Last updated: 2026-09-04.
 
 ---
 
-## Read this before anything else
+## The short version
 
-**Two branches are pushed but NOT merged.** They were being built by two agents
-that were stopped mid-task; everything they had is committed, including the
-unfinished work, which is marked `WIP:` in the log. Nothing on `main` depends on
-them and `main` is green — but the game cannot be played end to end until they
-land, because they hold the only two scenes `SceneFlow` points at that `main`
-does not have.
+**`main` has everything. There are no unmerged branches.** `feat/island` and
+`feat/ui` are merged and can be deleted. The game runs from the main menu
+through a lobby into a real match on a real island and out to a results screen,
+and there is now an automated check that walks exactly that path.
 
-| branch | building | last commit |
-|---|---|---|
-| `feat/island` | Phase 4 — the island, scatter, landmarks, torches, ambience, and **`scenes/world/arena.tscn`** | `The island was inside-out, and everything else followed from that` |
-| `feat/ui` | Phases 1.3–1.8 and 6 — menu, lobby, HUD, scoreboard, pause, results | `The lobby: a ring of real Gubs and everything the host can dial` |
-
-**Everything is committed and pushed.** The last commit on each branch is a
-`WIP:` commit holding what the agent had not finished, and each one says in its
-message exactly where it had got to and what it had *not* verified:
-
-- `feat/island` — `WIP: arena spawn placement and the island preview`. Compiles,
-  not looked at. Next step was one spawn point that lands on the shrine's slope.
-- `feat/ui` — `WIP: HUD, scoreboard, kill feed, pause menu and results screen`.
-  Compiles; the HUD has been seen running in `tools/hud_range.tscn`, the rest
-  has not. Next steps were ability-slot key caps, kill-feed alignment, and a
-  more compact chat panel.
-
-**Treat everything in those two WIP commits as unreviewed.** The finished
-commits below them were verified by their agents; the WIP ones were not.
-
-The worktrees at `C:/Users/carlm/REPOS/Gubs_Game_island` and
-`.../Gubs_Game_ui` are now clean and safe to remove with
-`git worktree remove` once the branches are merged.
-
-### How to finish this
-
-1. In each worktree, `git status`, review, commit anything worth keeping, push.
-2. Merge both into `main`. **The file sets are disjoint** — `scripts/world/**` +
-   `scenes/world/**` versus `scripts/ui/**` + `scenes/ui/**` + `resources/ui/**`
-   — so the merges should be clean. Neither touches `project.godot`.
-3. The one likely conflict is `docs/DECISIONS.md`: both agents were told to
-   append entries, and `main` already uses **D-001 … D-016**. Resolve by
-   **renumbering their entries, not by dropping any**.
-4. Delete the branches and worktrees once merged. The intent is that everything
-   lives on `main`; these branches only existed so two agents could run in
-   parallel without fighting over one Godot import cache.
-5. Then do the thing nothing has ever done: **play it from the main menu through
-   a match to the results screen.**
-
----
-
-## The state of the game
-
-`main` is green: `bash tools/smoke_test.sh` passes 6 checks.
-
-Phases 0, 2, 3 and 5 are done and verified on screen. Phase 1 is done except its
-UI. Phase 4 is sky and environment only. Phases 6 and 7 are the gaps.
-
-### Known issue — the ragdoll can still stretch a limb
-
-The corpse no longer explodes (D-013) and now carries the spear's momentum, but
-**at higher impact energies a limb can still stretch into a spike briefly during
-the tumble** before the body settles. It always settles: the stability guard
-requires a compact, still corpse by tick 150 and that passes.
-
-It is the same mechanism as D-013 — a joint being driven past its limit by a
-hard contact — just no longer bad enough to run away. If you pick this up:
-
-- The lever that worked before was **widening the spans** in
-  `RagdollBuilder.SEGMENTS`, not tightening them. See the lesson at the end of
-  D-013.
-- `GubRagdoll.IMPACT_TRANSFER` (0.15) is the other dial. Above ~0.2 the corpse
-  arrives at the ground fast enough that contact starts amplifying and it gets
-  punted skyward; that was measured, not guessed.
-- Reproduce with: `combat_range` in `hit` mode around tick 100, at 1600x900.
-
----
-
-## Environment
-
-Godot is not on `PATH`, and note that the `.exe` in this path is a **directory**:
-
-```bash
-GODOT="$HOME/Downloads/Godot_v4.7.2-stable_win64.exe/Godot_v4.7.2-stable_win64_console.exe"
+```
+bash tools/smoke_test.sh        # 7 checks, ~2 minutes, finds Godot by itself
 ```
 
-Use the `_console` binary for anything you want output from; the plain one
-detaches from the terminal and prints nowhere.
+That is the gate. It passes.
 
-```bash
-# Reimport after adding or changing any asset. A new `class_name` script also
-# needs this before anything else can refer to it by name.
-"$GODOT" --headless --path . --import
+---
 
-# Everything checkable without a person watching. ~1 minute. Run before committing.
-bash tools/smoke_test.sh
+## The engine, and the one thing that will waste your afternoon
 
-# Render any scene to a PNG and quit. The number is PHYSICS TICKS (D-012).
-"$GODOT" --path . --resolution 1280x720 --script tools/snapshot.gd -- \
-    res://tools/combat_range.tscn out.png 70 hit
+The project needs **Godot 4.7.x**. A 4.6 binary does not fail gracefully — it
+fails with a wall of
 
-# Rebuild generated art / audio. Both outputs are committed, so this is only
-# needed when a source changes. Safe to re-run; sources are never modified.
-python tools/decimate_assets.py     # numpy, scipy, pillow, fast_simplification
-python tools/make_sfx.py            # numpy
+```
+Parse Error: Too many arguments for "add_blend_point()" call.
 ```
 
-Python is 3.9 via the Windows Store shim. `fast_simplification` needed a
-one-line local patch (`from __future__ import annotations` at the top of its
-`simplify.py`) to import on 3.9 — expect to redo that on a fresh machine.
+which looks exactly like a bug in this repository and is not one. `add_blend_point`
+gained a fourth argument in 4.7. See **D-017**.
 
-### Two traps that have each cost an hour
+`tools/smoke_test.sh` now finds the engine itself and *refuses* a 4.6 binary
+rather than running it, so this should not bite again. `$GODOT` still overrides.
 
-- **A `--script` main loop is compiled before the autoloads are registered**, so
-  it cannot so much as name `MatchState` or `Net` without failing to parse — and
-  any script it statically references inherits that failure, silently loading
-  the scene *without its script attached*. That is why `match_rules` and
-  `invite_codes` are scenes. See D-015.
-- **Godot's user data is keyed on project name, not path**, so every checkout of
-  this project on one machine shares `settings.cfg`. A name typed into the menu
-  in one worktree changed what another worktree's testbed printed, and broke a
-  smoke-test grep.
-
-### Dev tools in `tools/` (none of these ship)
-
-| file | what it does |
+| machine | path |
 |---|---|
-| `smoke_test.sh` | **the gate** — import, two harnesses, three combat modes |
-| `snapshot.gd` | render a scene to PNG and quit — the main visual loop |
-| `combat_range.tscn` | **the combat testbed**: a real match, one player, dummies |
-| `match_rules.tscn` | 60 assertions across 9 scoring scenarios, headless |
-| `invite_codes.tscn` | 2619 assertions over 1296 endpoints, headless |
-| `ragdoll_stability.tscn` | throws a corpse with a real spear, requires it to settle |
-| `sandbox.tscn` | playable flat testbed for movement |
-| `inspect_scene.gd` | dump a scene's node tree, animations, bones, tri counts |
-| `preview_assets/anim/grip/ragdoll/sky` | look at one thing in isolation |
-| `decimate_assets.py`, `make_sfx.py`, `gltf_io.py`, `rig_math.py` | offline pipelines |
+| this Mac | `~/Downloads/Godot_v4.7.2-stable_macos/Godot.app/Contents/MacOS/Godot` |
+| the Windows box | `~/Downloads/Godot_v4.7.2-stable_win64.exe/Godot_v4.7.2-stable_win64_console.exe` |
 
-### The combat range
+Note that on Windows the `.exe` in that path is a **directory**, and you want the
+`_console` binary — the plain one detaches and prints nowhere. On macOS,
+`/Applications/Godot.app` is 4.6.3 and is the wrong one.
 
-Runs the **real match path** — an offline session on `Net`, a roster,
-`MatchState.register_arena`, kills through `MatchState.report_kill`. It reaches
-past no private API, so a throw that works there works in a match (D-011).
-
-```bash
-"$GODOT" --path . --resolution 1280x720 --script tools/snapshot.gd -- \
-    res://tools/combat_range.tscn out.png <ticks> <mode> [trace|pov]
-```
-
-| mode | ticks | shows |
-|---|---|---|
-| `flight` | 33 | the spear in mid-air with its trail |
-| `hit` | 70 | the corpse, thrown, spear still through it |
-| `arc` | 55 | a long throw, to judge drop |
-| `miss` | 60 | a spear stuck in the dirt |
-| `mushroom` | 40 | one planted, to check size and placement |
-| `lure` | 132 | a lure lobbed at a dummy, held through the pull |
-| `lure_self` | 62 | a lure at your own feet — the only way to *see* the pull |
-| `free` | — | play it yourself |
-
-**The `lure` mode reports dummies as caught and they will not move.** That is
-correct: the pull is applied on each victim's own client because movement is
-client-authoritative, and the dummies are fake roster entries with no client
-behind them. `lure_self` is the mode that shows the pull working.
+A useful trick: a clean `--headless --path . --import` that rewrites **no**
+`.import` files means the engine in hand is the one the committed assets were
+generated by. If those files come back modified, the engine is wrong.
 
 ---
 
 ## What is done
 
-### Phase 0 — foundation ✅
-Repo, `project.godot`, asset pipeline. Four ~500k-triangle sources become 37k
-triangles total, 90 MB → 7 MB, committed so a fresh clone runs without Python.
-**D-008** is still the most important entry in the decisions log.
+Phases 0-6 are complete, and Phase 7 is complete except the build itself.
+`docs/PLAN.md` has the item-by-item state. Highlights of what that means:
 
-### Phase 1 — networking ✅ *backend only*
-`Net` and `InviteCode` are complete, and `InviteCode` is thoroughly tested.
-**No menu, lobby or scene flow yet** — that is `feat/ui`.
-
-### Phase 2 — the Gub ✅
-Movement, camera, animation blending, nameplate, network sync, ragdoll.
-Movement speeds are the clips' own authored speeds × `Gub.SPEED_SCALE` (1.35),
-with the locomotion clips played back at that same factor — that is what keeps
-the feet planted. **Do not change one without the other.**
-
-The Gub mesh was replaced this session and it is a clean swap: same 29 joints in
-the same order, byte-identical inverse bind matrices, the same eight clips at
-the same durations. Re-running the pipeline reproduced every number the old
-source produced, so the tuning above still holds. Verified on screen: mesh,
-clips, ragdoll, and the spear grip.
-
-### Phase 3 — combat ✅ *except the kill feed*
-Throw, arcing flight, trail, hit resolution, the kill, spear regeneration, the
-mushroom and the lure — all written, run and looked at. A spear stays in the
-body it killed and rides the corpse, and the corpse is thrown by the momentum of
-the blow. Sounds, hitmarker and camera shake are in. The kill feed is 6.3 and
-belongs to `feat/ui`.
-
-### Phase 4.6 / 4.7 — sky and environment ✅
-Handoff notes for the island are in **D-009** and they matter — particularly
-that the sky **assumes a `DirectionalLight3D` exists** and draws the moon at its
-direction.
-
-### Phase 5 — match rules ✅ *rules only*
-Proven by `tools/match_rules.tscn`: kill limit, teams, friendly fire both ways,
-team totals, lives and elimination, the clock, void deaths with lure credit,
-spawn protection, and `MatchConfig.apply_dict` against hostile input. **5.5's
-results screen is UI** and belongs to `feat/ui`.
-
-### Phase 7 — ship ⚠️
-Export preset, smoke test and README done. **The export needs the 4.7.2 export
-templates installed** (a one-time ~1 GB download via *Editor → Manage Export
-Templates*), which this machine does not have — **no binary has ever been
-produced**. 7.4 is a final pass and a tag, after the merges.
+- **The whole loop works.** Menu → host → lobby → start → island → warmup →
+  match → results → rematch or back to the lobby.
+- **The island** (Whisperbloom Hollow) is generated from `Net.config.map_seed`:
+  ~1400 props in MultiMeshes, a shrine on the high ground, a mushroom grove, a
+  rock arch, log bridges to two satellite islets, stone paths, 15 torches,
+  fireflies, spores, falling leaves, and two ambient beds. It takes 2-6 seconds
+  to build, which is why `SceneFlow` shows a loading card.
+- **The UI** is themed and complete: menu with a live glade behind it, an
+  eight-Gub lobby, HUD, scoreboard, kill feed, pause, settings, chat, results.
+- **Combat** is a one-hit spear, a mushroom you cannot be shot through, and a
+  lure that drags people into the open.
 
 ---
 
-## What is left, in order
+## What is left
 
-1. **Land the two branches** (see the top of this file).
-2. **Play it end to end.** Menu → lobby → arena → results has never once been
-   done, because until the merges neither end of it exists.
-3. **A second machine.** Everything networked has only ever run through
-   `Net.start_offline()` (D-011), which is a real session with no socket. The
-   RPC paths are *code*-tested and have never sent a packet. Two clients on one
-   LAN is the first real test of invite codes, roster sync, disconnect handling,
-   and the client-authoritative lure pull.
-4. **Install export templates and produce a build.**
-5. The ragdoll limb-stretch above, if it bothers you in motion.
-6. Phase 4.9 ambient audio — the *assets* exist (`AudioDirector.AMBIENT_WIND`,
-   `AMBIENT_FOREST`, seamless loops) but may still need wiring in the arena.
+1. **Real multiplayer has never been played.** See the next section — this is
+   the big one.
+2. **Mid-match join as spectator** (PLAN 1.8). The other two disconnect cases
+   are done and tested. This one needs a piece that does not exist: a late
+   joiner is never told about Gubs that already spawned, because `_create_gub`
+   is broadcast once, at spawn time, and there is no world-state-on-join
+   message. That is the whole of the work.
+3. **No binary has ever been produced.** `export_presets.cfg` is committed and
+   correct, but the 4.7.2 **export templates** are not installed on this machine
+   (a one-time ~1 GB download: *Editor → Manage Export Templates*). Without them
+   the export fails with `No export template found at the expected path`. There
+   is also only a Windows preset; a macOS one would be worth adding.
+4. **Phase 7.4** — a final pass and a tag.
+
+---
+
+## The state of the networking
+
+Everything networked runs through `Net.start_offline()` in every test, which is
+a real session on an `OfflineMultiplayerPeer`: peer 1, `is_server()` true, and
+**no socket** (D-011). Every `is_host` branch and every authority check takes the
+shipping path — but `rpc()` reaches nobody, so only the "call locally" half of
+the codebase's `rpc()`-then-call-locally pattern has ever run.
+
+**Serialization has never been exercised. No packet has ever been sent.**
+
+`tools/net_loopback.tscn` and `tools/net_test.sh` exist to change that by running
+two real processes against 127.0.0.1. Read that tool's header for what it covers
+and what it found. Two things it still cannot tell you, and only two machines
+can: real latency, and whether a client-authoritative Gub feels right to the
+person driving it.
+
+Worth knowing before that session:
+
+- The **invite code is the host's IP and port**, Crockford base32 (D-005). It
+  works on a LAN, over a VPN, or over the internet with **UDP 27015** forwarded.
+  No backend. It also means the code leaks the host's address, which is a
+  product decision worth confirming rather than a settled one.
+- macOS may raise a firewall prompt the first time a Godot binary binds 27015.
+- Godot's user data is keyed on **project name, not path**, so every checkout of
+  this project on one machine shares `user://settings.cfg`. A name typed into
+  one worktree's menu changes what another one's testbed prints.
+
+---
+
+## Verification, and what each tool is for
+
+Three tiers, because three different kinds of claim need three different proofs
+(D-015, D-019).
+
+| tool | proves |
+|---|---|
+| `tools/smoke_test.sh` | **the gate** — import, and the six checks below |
+| `tools/playthrough.tscn` | the whole path, menu to results, 39 assertions |
+| `tools/match_rules.tscn` | 60 assertions across 9 scoring scenarios |
+| `tools/invite_codes.tscn` | 2619 assertions over 1296 endpoints |
+| `tools/ragdoll_stability.tscn` | a corpse is still a corpse 150 ticks later |
+| `tools/combat_range.tscn` | the real match path: a spear, a mushroom, a lure |
+| `tools/net_loopback.tscn` | two processes, one socket. **Not in the gate** — it binds a port |
+| `tools/preview_*.tscn` | it *looks* right. Needs a person, always will |
+
+**`playthrough` is the one that catches integration.** Every other harness looks
+at a single seam, and a defect that lives *between* two of them is invisible to
+all of them — which is exactly what happened when `feat/island` and `feat/ui`
+merged cleanly into a game with no HUD (D-018). Add to it whenever you add a
+screen to the flow.
+
+```bash
+# Render any scene to a PNG and quit. The number is PHYSICS TICKS (D-012).
+"$GODOT" --path . --resolution 1600x900 --script tools/snapshot.gd -- \
+    res://tools/preview_island.tscn out.png 150 shrine
+
+# The island with the HUD over it, which is the only way to judge the two together
+"$GODOT" --path . --resolution 1600x900 --script tools/snapshot.gd -- \
+    res://tools/preview_island.tscn out.png 150 wide match hud
+```
+
+`preview_island` views: `wide under eye shrine grove arch bridge spawns hollow`,
+plus `match` for real Gubs and the diagnostic flags in its `FLAGS` dictionary.
+`ui_range` modes: `menu menu_join menu_notice settings lobby lobby_full
+lobby_teams lobby_client`. `hud_range` modes: `hud hud_teams hud_cooldown
+killfeed scoreboard pause results dead spectate`.
+
+**A trap worth knowing in `zsh`:** unquoted `$args` is not word-split, so passing
+several trailing arguments through a variable silently sends them as one string
+and the tool quietly uses its defaults. Pass them literally.
+
+---
+
+## Known issues
+
+- **The ragdoll can still stretch a limb.** The corpse no longer explodes (D-013)
+  and carries the spear's momentum, but at higher impact energies a limb can
+  briefly stretch during the tumble. It always settles — `ragdoll_stability`
+  requires a compact, still corpse by tick 150 and that passes. The lever that
+  worked before was **widening** the joint spans in `RagdollBuilder.SEGMENTS`,
+  not tightening them; `GubRagdoll.IMPACT_TRANSFER` (0.15) is the other dial, and
+  above ~0.2 contact starts amplifying and the corpse gets punted. Reproduce with
+  `combat_range` in `hit` mode around tick 100.
+- **Two spawn pads can end up ~3.8 m apart** on the default seed. `_next_spawn`
+  prefers a pad with nobody near it, so it rarely bites, but the ring solver in
+  `arena.gd` could enforce a minimum separation between pads as well as a slope
+  limit.
+- **The lobby's match panel scrolls without saying so.** The rows past "Spear
+  recharge" are reachable but the scrollbar is invisible against the theme, so
+  the panel reads as clipped rather than scrollable.
 
 ---
 
 ## Things worth knowing that are not obvious from the code
 
-- **Invite codes encode the host's IP and port** (`XXXXX-XXXXX`, Crockford
-  base32). Works on a LAN, over a VPN, or over the internet with one forwarded
-  port (**UDP 27015**), with no backend at all. **This is a product decision the
-  user should confirm** — see D-005.
 - **When in doubt, open a ragdoll joint up.** A cone-twist driven past its limit
-  adds energy rather than clamping. Too floppy looks rubbery; too tight
-  explodes. See D-013.
+  adds energy rather than clamping. Too floppy looks rubbery; too tight explodes.
 - `LURE_GRAVITY` in `gub_combat.gd` must equal `Lure.GRAVITY`. The arc is solved
-  in one file and flown in the other; if they disagree the lure misses where it
-  was aimed. See D-014.
+  in one file and flown in the other (D-014).
 - The character scale (0.35) is baked at **import time**, not applied to the
-  model node. A scaled `Skeleton3D` gives Godot scaled rigid bodies and the
-  ragdoll capsules stop matching the mesh.
+  model node. A scaled `Skeleton3D` gives scaled rigid bodies and the ragdoll
+  capsules stop matching the mesh.
 - The Gub mesh is authored facing **+Z**; `gub.tscn` turns the model 180° so
   `body_yaw` means "the way the Gub is looking" in Godot's -Z-forward convention.
 - Ragdolls are local and cosmetic and deliberately **not replicated** (D-010).
-- `GubCamera.look_at_point` solves from the *camera's* position, not the rig's,
-  because the camera sits a shoulder-width off the rig axis.
+- Movement speeds are the clips' authored speeds × `Gub.SPEED_SCALE` (1.35), with
+  the locomotion clips played back at that same factor. **Do not change one
+  without the other** — that is what keeps the feet planted (D-008).
 - Sound placement encodes a rule: **3D means an event in the world that gives
-  your position away; 2D means feedback only you could have.** See D-016.
-- `assets/` holds the raw art and is `.gdignore`d under `assets/source/`; Godot
-  only imports the MegaKit glTF and `art/generated/`.
+  your position away; 2D means feedback only you could have** (D-016).
+- `queue_free()` is deferred. A `while` loop that frees a child and re-reads
+  `get_child_count()` never terminates; that hung the whole game on the sixth
+  death of every match and is written up in the commit that fixed it.
 
 ---
 
 ## Git
 
-`main`, `feat/island` and `feat/ui` are all pushed to
-**https://github.com/CarlMenke/Gubs_Game** (public). The two feature branches
-are meant to be merged into `main` and deleted, along with their worktrees.
+`main` is the only branch that matters and holds everything. `feat/island` and
+`feat/ui` are merged and can be deleted, locally and on the remote:
 
-The repo belongs to CarlMenke; JulianC775 is a collaborator with push rights, so
-plain `git push` works from this machine. If it ever 403s, check that first:
+```bash
+git push origin --delete feat/island feat/ui
+git branch -D feat/island feat/ui
+```
+
+The repo is **https://github.com/CarlMenke/Gubs_Game** (public), owned by
+CarlMenke, with JulianC775 as a collaborator, so plain `git push` works. If it
+ever 403s, check that first:
 
 ```bash
 gh api repos/CarlMenke/Gubs_Game --jq '.permissions'
 ```
 
-`gh` is installed at `/c/Program Files/GitHub CLI/gh`, authenticated as
-JulianC775 with `repo`, `read:org` and `gist` scopes.
+The tag `pre-merge-baseline` marks the last commit before the two branches
+landed, if you ever need to see what each side looked like on its own.
