@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bgubpreviewisl"]
+
+[ext_resource type="Script" path="res://tools/preview_island.gd" id="1"]
+
+[node name="PreviewIsland" type="Node3D"]
+script = ExtResource("1")
