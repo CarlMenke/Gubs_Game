@@ -87,7 +87,7 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 
 ## Phase 7 — Ship
 
-- [ ] 7.1  Export preset (Windows), icon, app metadata
-- [ ] 7.2  Headless import + automated smoke test script
+- [x] 7.1  Export preset (Windows), icon, app metadata *(needs export templates installed)*
+- [x] 7.2  Headless import + automated smoke test script
 - [ ] 7.3  README — how to build, run, host, and join
 - [ ] 7.4  Final pass + tagged commit

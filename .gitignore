@@ -1,8 +1,15 @@
 # Godot 4
 .godot/
 /android/
-export_presets.cfg
 *.translation
+
+# export_presets.cfg is deliberately NOT ignored, though Godot's own template
+# ignores it. It carries no credentials here — code signing is off and the
+# remote-deploy block is stock — and it is the only record of what a shippable
+# build actually excludes (tools/, assets/, docs/). Ignoring it would mean
+# "there is an export preset" was a claim nobody else could check out.
+# If signing is ever enabled, move the certificate path into a local override
+# rather than committing it.
 
 # Build output
 build/
