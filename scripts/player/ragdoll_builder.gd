@@ -74,7 +74,15 @@ static func build(skeleton: Skeleton3D) -> PhysicalBoneSimulator3D:
 			push_warning("RagdollBuilder: rig has no %s -> %s"
 				% [segment["bone"], segment["tip"]])
 			continue
-		simulator.add_child(_make_bone(skeleton, bone, tip, segment))
+		var physical := _make_bone(skeleton, bone, tip, segment)
+		simulator.add_child(physical)
+		# Swept collision. A shin capsule is 4 cm across and a thrown corpse
+		# arrives at 9 m/s, which is 15 cm per physics tick — nearly four times
+		# its own radius. Discrete detection lets it land deep inside the
+		# ground, and the shove that pushes it back out is what was punting
+		# corpses into the sky.
+		PhysicsServer3D.body_set_enable_continuous_collision_detection(
+			physical.get_rid(), true)
 
 	return simulator
 

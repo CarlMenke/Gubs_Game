@@ -305,8 +305,11 @@ func _do_respawn(peer_id: int, spawn: Transform3D) -> void:
 # ------------------------------------------------------------------- kills ---
 
 ## Host only. The single place a death is decided.
+## `blow` is the killing blow's velocity — speed as well as direction, because
+## the corpse's flight is the whole feedback for a kill and a spear that has
+## dropped out of a long arc should shove a body far less than a flat one.
 func report_kill(victim_id: int, killer_id: int, cause: Gub.Cause,
-		point: Vector3, direction: Vector3, bone: String) -> void:
+		point: Vector3, blow: Vector3, bone: String) -> void:
 	if not Net.is_host or phase != Phase.PLAYING:
 		return
 	var entry: Dictionary = stats.get(victim_id, {})
@@ -333,22 +336,24 @@ func report_kill(victim_id: int, killer_id: int, cause: Gub.Cause,
 		var delta := -1 if _same_team(killer_id, victim_id) else 1
 		stats[killer_id]["kills"] += delta
 
-	_apply_death.rpc(victim_id, killer_id, cause, point, direction, bone)
-	_apply_death(victim_id, killer_id, cause, point, direction, bone)
+	_apply_death.rpc(victim_id, killer_id, cause, point, blow, bone)
+	_apply_death(victim_id, killer_id, cause, point, blow, bone)
 	_push_scores()
 	_check_win()
 
 
 @rpc("authority", "call_remote", "reliable")
 func _apply_death(victim_id: int, killer_id: int, cause: Gub.Cause,
-		point: Vector3, direction: Vector3, bone: String) -> void:
+		point: Vector3, blow: Vector3, bone: String) -> void:
 	var victim: Gub = gubs.get(victim_id)
 	if is_instance_valid(victim):
 		victim.kill(killer_id, cause)
 		# The corpse is a separate, local, cosmetic thing (D-010).
 		if cause != Gub.Cause.VOID:
-			GubRagdoll.spawn_from(victim, victim.get_parent(),
-				direction * 2.6 + Vector3.UP * 0.5, bone)
+			# Passed through untouched: the ragdoll owns how a blow becomes
+			# motion, and scaling it here as well would mean two files had to
+			# agree on how hard a spear hits.
+			GubRagdoll.spawn_from(victim, victim.get_parent(), blow, bone)
 		victim.visible = false
 
 	if is_instance_valid(victim):

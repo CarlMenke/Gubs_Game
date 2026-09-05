@@ -214,8 +214,11 @@ func _on_spear_struck_gub(victim: Gub, point: Vector3, bone: String,
 	# Only the host's copy of a spear is allowed to decide anything.
 	if not spear.authoritative or not Net.is_host:
 		return
+	# The full velocity, not a direction: its magnitude is what makes the corpse
+	# fly rather than sag, and a spear that has dropped out of a long arc should
+	# shove one much less than a flat throw from close range.
 	MatchState.report_kill(victim.peer_id, _gub.peer_id, Gub.Cause.SPEAR,
-		point, spear.velocity().normalized(), bone)
+		point, spear.impact_velocity(), bone)
 
 
 # ---------------------------------------------------------------- mushroom ---

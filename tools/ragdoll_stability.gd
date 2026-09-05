@@ -7,18 +7,30 @@ extends Node3D
 ## sticks by tick 60. Anything that measures only the first half-second will
 ## certify a broken ragdoll as working — see D-013.
 ##
-## The two numbers that matter:
-##   spread  — the furthest any body sits from the corpse's centre. A settled
-##             Gub is about 0.6 m. Anything past SPREAD_LIMIT is an explosion.
-##   fastest — the quickest body. A settled corpse is under 1 m/s; a diverging
-##             one reaches hundreds within a dozen ticks.
+## What it judges, and deliberately what it does not:
+##
+##   settled   — by SETTLE_BY the corpse must be a compact, still body: every
+##               part within SPREAD_LIMIT of its centre and moving under
+##               SETTLED_SPEED. This is the real test. A broken ragdoll never
+##               arrives here.
+##   runaway   — no body may ever exceed RUNAWAY_SPEED, which is far above
+##               anything a spear can impart, so only a solver that is adding
+##               energy can reach it.
+##
+## It does NOT bound the peak spread or speed during the tumble. A Gub killed by
+## a 42 m/s spear is *supposed* to be thrown across the ground, and an earlier
+## version of this file failed the fixed ragdoll for doing exactly that.
 ##
 ## Godot --path . --script tools/snapshot.gd -- res://tools/ragdoll_stability.tscn out.png 300
 
 const GUB := preload("res://scenes/player/gub.tscn")
 
+## Judged only once the corpse has had time to come to rest.
 const SPREAD_LIMIT := 1.5
-const SPEED_LIMIT := 40.0
+const SETTLED_SPEED := 1.5
+## Judged every tick. A spear arrives at 42 m/s, so nothing legitimate comes
+## close to this — reaching it means the solver is adding energy.
+const RUNAWAY_SPEED := 120.0
 ## Ticks to let the corpse settle before judging it.
 const SETTLE_BY := 150
 
@@ -54,8 +66,11 @@ func _ready() -> void:
 func _physics_process(_delta: float) -> void:
 	_frames += 1
 	if _frames == 10:
+		# A real spear velocity, not a token nudge: the corpse is thrown hard
+		# now, and the joints have to survive being thrown hard and *then*
+		# hitting the ground.
 		_corpse = GubRagdoll.spawn_from(_gub, self,
-			Vector3(0, 0.25, -1).normalized() * 2.4, "spine.002")
+			Vector3(0, -0.12, -1).normalized() * SpearProjectile.SPEED, "spine.002")
 		_gub.visible = false
 		_gub.alive = false
 		return
@@ -86,16 +101,24 @@ func _physics_process(_delta: float) -> void:
 	_worst_spread = maxf(_worst_spread, spread)
 	_worst_speed = maxf(_worst_speed, fastest)
 
-	if not _failed and (spread > SPREAD_LIMIT or fastest > SPEED_LIMIT):
+	if not _failed and fastest > RUNAWAY_SPEED:
 		_failed = true
-		print("ragdoll_stability: FAIL at tick %d — spread %.2f m (limit %.2f), "
-			% [_frames, spread, SPREAD_LIMIT]
-			+ "fastest %.1f m/s (limit %.1f)" % [fastest, SPEED_LIMIT])
+		print("ragdoll_stability: FAIL at tick %d — %.1f m/s exceeds the %.1f m/s "
+			% [_frames, fastest, RUNAWAY_SPEED]
+			+ "a spear could ever impart; the solver is adding energy")
 
 	if _frames == SETTLE_BY:
+		if spread > SPREAD_LIMIT:
+			_failed = true
+			print("ragdoll_stability: FAIL — still %.2f m across at rest (limit %.2f)"
+				% [spread, SPREAD_LIMIT])
+		if fastest > SETTLED_SPEED:
+			_failed = true
+			print("ragdoll_stability: FAIL — still moving at %.2f m/s (limit %.2f)"
+				% [fastest, SETTLED_SPEED])
 		print("ragdoll_stability: settled spread %.2f m, fastest %.2f m/s"
 			% [spread, fastest])
-		print("ragdoll_stability: peak spread %.2f m, peak speed %.1f m/s"
+		print("ragdoll_stability: peak spread %.2f m, peak speed %.1f m/s (not judged)"
 			% [_worst_spread, _worst_speed])
 		print("ragdoll_stability: %s" % ("FAIL" if _failed else "PASS"))
 

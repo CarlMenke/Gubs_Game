@@ -54,6 +54,10 @@ var _stuck_age: float = 0.0
 var _embedded: bool = false
 ## Seconds spent waiting for a corpse to claim this spear.
 var _pending_age: float = 0.0
+## The velocity this spear was carrying at the moment it struck something.
+## `_velocity` is zeroed on impact, so without this the momentum of the hit is
+## gone by the time anyone downstream asks about it.
+var _impact_velocity: Vector3 = Vector3.ZERO
 var _model: Node3D
 var _thrower: Gub
 var _trail: SpearTrail
@@ -184,6 +188,7 @@ func _stick_in(victim: Gub, point: Vector3, bone: String) -> void:
 	_stuck = true
 	_stuck_age = 0.0
 	_pending_age = 0.0
+	_impact_velocity = _velocity
 	global_position = point + _velocity.normalized() * BURY_DEPTH
 	_velocity = Vector3.ZERO
 	AudioDirector.play_3d_varied(AudioDirector.SPEAR_HIT_BODY, point)
@@ -203,6 +208,7 @@ func _stick_in(victim: Gub, point: Vector3, bone: String) -> void:
 func _stick(normal: Vector3) -> void:
 	_stuck = true
 	set_process_priority(0)
+	_impact_velocity = _velocity
 	AudioDirector.play_3d_varied(AudioDirector.SPEAR_HIT_WORLD, global_position)
 	if _trail != null:
 		_trail.begin_fade()
@@ -253,6 +259,14 @@ func _face_travel() -> void:
 ## Where the spear is right now, for trails and audio.
 func velocity() -> Vector3:
 	return _velocity
+
+
+## What the spear was doing at the instant it hit, direction *and* speed. This
+## is what carries the weight of a throw into the corpse: a spear caught at the
+## top of a long arc has shed most of its speed and should shove a body far less
+## than one that arrives flat from ten metres.
+func impact_velocity() -> Vector3:
+	return _impact_velocity
 
 
 func is_stuck() -> bool:

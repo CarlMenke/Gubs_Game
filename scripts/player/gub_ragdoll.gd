@@ -17,12 +17,30 @@ const MODEL := preload("res://art/generated/gub.glb")
 const LINGER := 9.0
 const FADE := 1.6
 
-## Hits are amplified into something readable. A spear that lands is an instant
-## kill, so the corpse's flight is the whole feedback for it — an anatomically
-## honest impulse just makes the Gub sag.
-const IMPULSE_SCALE := 2.2
-const MIN_IMPULSE := 2.5
-const UPWARD_BIAS := 0.35
+## How much of the spear's speed the corpse leaves with.
+##
+## A spear flies at 42 m/s and a Gub's thirteen bodies weigh about 38 kg between
+## them, so the physically honest answer is "almost none of it" — the Gub would
+## twitch and drop where it stood. That is the wrong answer twice over. A spear
+## that lands is an instant kill, so the corpse's flight is the *entire*
+## feedback for the most important event in the game, and it has to be legible
+## from across the arena. And a Gub is a cartoon, so being knocked off your feet
+## by a thrown stick is the read everyone already expects.
+##
+## At 0.15, a flat hit sends the body off at about 6 m/s — knocked off its feet
+## and thrown a few metres, which is the read. Higher was tried and is worse for
+## a reason worth knowing: above about 0.2 the corpse arrives at the ground fast
+## enough that the contact starts amplifying, and it gets punted into the sky
+## rather than tumbling along it.
+const IMPACT_TRANSFER := 0.15
+## The struck bone takes well over its share and the rest take less, which is
+## what makes a leg shot cartwheel the Gub while a chest shot launches it flat.
+const STRUCK_SHARE := 1.35
+const BODY_SHARE := 0.95
+## Even a spent spear should tip a Gub over rather than let it fold in place.
+const MIN_SPEED := 2.5
+## A little lift so the body leaves the ground instead of scraping along it.
+const UPWARD_BIAS := 0.30
 
 var _skeleton: Skeleton3D
 var _simulator: PhysicalBoneSimulator3D
@@ -32,17 +50,18 @@ var _age: float = 0.0
 
 ## Build a corpse matching `source` and let it fall.
 ##
-## `impulse` points the way the killing blow was travelling; `hit_bone` is where
-## it landed, so a spear through the chest spins the body differently from one
-## through a leg. An empty `hit_bone` pushes the torso.
-static func spawn_from(source: Gub, parent: Node, impulse: Vector3,
+## `blow` is the killing blow's **velocity** — direction and speed both, because
+## the speed is what decides whether the corpse is shoved or launched.
+## `hit_bone` is where it landed, so a spear through the chest sends the body
+## differently from one through a leg. An empty `hit_bone` pushes the torso.
+static func spawn_from(source: Gub, parent: Node, blow: Vector3,
 		hit_bone: String = "") -> GubRagdoll:
 	var corpse := GubRagdoll.new()
 	corpse.name = "Corpse_%s" % source.display_name
 	parent.add_child(corpse)
 	corpse.global_transform = source.global_transform
 	corpse._adopt(source)
-	corpse._collapse(impulse, hit_bone)
+	corpse._collapse(blow, hit_bone)
 	corpse._adopt_spears(source)
 	return corpse
 
@@ -93,17 +112,20 @@ func _adopt(source: Gub) -> void:
 		_meshes.append(node)
 
 
-func _collapse(impulse: Vector3, hit_bone: String) -> void:
+func _collapse(blow: Vector3, hit_bone: String) -> void:
 	if _skeleton == null:
 		return
 	_simulator = RagdollBuilder.build(_skeleton)
 	RagdollBuilder.snap_to_pose(_skeleton, _simulator)
 	_simulator.physical_bones_start_simulation()
 
-	var push := impulse * IMPULSE_SCALE
-	if push.length() < MIN_IMPULSE:
-		push = push.normalized() * MIN_IMPULSE if push.length() > 0.01 else Vector3.ZERO
-	# A little lift makes the body leave the ground instead of scraping along it.
+	# `push` is a velocity, and every body is given an impulse of mass x push,
+	# which is the definition of a velocity change. Scaling by each body's own
+	# mass is the point: without it the 0.8 kg foot would leave at eleven times
+	# the speed of the 9 kg torso and the corpse would come apart at the seams.
+	var push := blow * IMPACT_TRANSFER
+	if push.length() < MIN_SPEED:
+		push = push.normalized() * MIN_SPEED if push.length() > 0.01 else Vector3.ZERO
 	push += Vector3.UP * push.length() * UPWARD_BIAS
 
 	var struck := _find_bone_body(hit_bone)
@@ -111,12 +133,8 @@ func _collapse(impulse: Vector3, hit_bone: String) -> void:
 		var physical := child as PhysicalBone3D
 		if physical == null:
 			continue
-		if struck != null and physical == struck:
-			# The bone that was actually hit takes the brunt, which is what
-			# makes a leg shot spin the Gub instead of launching it flat.
-			physical.apply_central_impulse(push * physical.mass * 1.25)
-		else:
-			physical.apply_central_impulse(push * physical.mass * 0.45)
+		var share := STRUCK_SHARE if physical == struck else BODY_SHARE
+		physical.apply_central_impulse(push * physical.mass * share)
 
 
 ## Take any spear that struck the Gub on the way down and hang it off the bone
