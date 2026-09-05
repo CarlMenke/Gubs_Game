@@ -45,9 +45,9 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 
 - [x] 3.1  Spear permanently held in the right hand (bone attachment)
 - [x] 3.2  Throw — aim, wind-up, release, arcing projectile
-- [ ] 3.2a Spear trail
+- [x] 3.2a Spear trail
 - [x] 3.3  Hit resolution (server-authoritative), instant kill
-- [ ] 3.3a Spear sticks in the corpse (today a body hit frees the projectile)
+- [x] 3.3a Spear sticks in the corpse
 - [x] 3.4  Spear regeneration — the hand empties on the throw and refills on the cooldown
 - [x] 3.5  Mushroom shield — deployed in front of the Gub, blocks spears, timed/HP, cooldown
 - [x] 3.6  Lure — thrown, arms on landing, briefly yanks nearby Gubs in and holds them

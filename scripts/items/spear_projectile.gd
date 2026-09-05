@@ -44,8 +44,11 @@ var _previous: Vector3 = Vector3.ZERO
 var _age: float = 0.0
 var _stuck: bool = false
 var _stuck_age: float = 0.0
+## Set once a corpse has taken ownership of this spear.
+var _embedded: bool = false
 var _model: Node3D
 var _thrower: Gub
+var _trail: SpearTrail
 
 
 ## Launch a spear. `direction` is expected to be normalised.
@@ -73,6 +76,10 @@ func _ready() -> void:
 	_model.position = Vector3(0.0, 0.0, 0.62)
 	add_child(_model)
 
+	_trail = SpearTrail.new()
+	add_child(_trail)
+	_trail.push_point(global_position)
+
 
 func _physics_process(delta: float) -> void:
 	if _stuck:
@@ -92,6 +99,8 @@ func _physics_process(delta: float) -> void:
 	if hit.is_empty():
 		global_position = next
 		_face_travel()
+		if _trail != null:
+			_trail.push_point(global_position)
 		return
 
 	_resolve(hit)
@@ -122,8 +131,9 @@ func _resolve(hit: Dictionary) -> void:
 		# Spawn protection makes a Gub solid but unkillable, so the spear passes
 		# through rather than stopping short and looking like a miss.
 		if victim.alive and not victim.is_invulnerable():
-			struck_gub.emit(victim, point, _nearest_bone(victim, point))
-			queue_free()
+			var bone := _nearest_bone(victim, point)
+			_stick_in(victim, point, bone)
+			struck_gub.emit(victim, point, bone)
 			return
 		global_position = point
 		return
@@ -153,9 +163,32 @@ func _nearest_bone(victim: Gub, point: Vector3) -> String:
 	return best
 
 
+## Bury the spear in the Gub it just killed and hand it to the corpse.
+##
+## Freeing it here instead — which is what used to happen — threw away the
+## clearest read in the game: a body on the ground with a spear through it says
+## who died and roughly how, from across the arena, for as long as the corpse
+## lasts. The ragdoll does not exist yet at this moment (the kill has not been
+## reported), so the spear parks itself on the victim and `GubRagdoll` collects
+## it while it is building the body. If no corpse ever appears — a void death,
+## or a client that never sees one — `Gub` drops it on its next respawn.
+func _stick_in(victim: Gub, point: Vector3, bone: String) -> void:
+	_stuck = true
+	_stuck_age = 0.0
+	global_position = point + _velocity.normalized() * BURY_DEPTH
+	_velocity = Vector3.ZERO
+	if _trail != null:
+		_trail.begin_fade()
+		_trail = null
+	victim.embed_spear(self, bone)
+
+
 func _stick(normal: Vector3) -> void:
 	_stuck = true
 	set_process_priority(0)
+	if _trail != null:
+		_trail.begin_fade()
+		_trail = null
 	# Bury the head a little and let the shaft keep the angle it arrived at, so
 	# a spear in the dirt reads as thrown rather than placed. The tip is at the
 	# origin, so pushing *along* the flight direction sinks it into the surface.
@@ -170,6 +203,10 @@ func _stick(normal: Vector3) -> void:
 
 
 func _tick_stuck(delta: float) -> void:
+	# A spear that ended up in a body is owned by the corpse and disappears when
+	# the corpse does; only one stuck in the scenery times itself out.
+	if _embedded:
+		return
 	_stuck_age += delta
 	if _stuck_age < STUCK_LINGER:
 		return
@@ -195,3 +232,9 @@ func velocity() -> Vector3:
 
 func is_stuck() -> bool:
 	return _stuck
+
+
+## Called by `GubRagdoll` once the spear has been re-parented onto a physical
+## bone, so it stops running its own fade-out timer.
+func mark_embedded() -> void:
+	_embedded = true

@@ -43,6 +43,7 @@ static func spawn_from(source: Gub, parent: Node, impulse: Vector3,
 	corpse.global_transform = source.global_transform
 	corpse._adopt(source)
 	corpse._collapse(impulse, hit_bone)
+	corpse._adopt_spears(source)
 	return corpse
 
 
@@ -116,6 +117,36 @@ func _collapse(impulse: Vector3, hit_bone: String) -> void:
 			physical.apply_central_impulse(push * physical.mass * 1.25)
 		else:
 			physical.apply_central_impulse(push * physical.mass * 0.45)
+
+
+## Take any spear that struck the Gub on the way down and hang it off the bone
+## it went through, so it rides the corpse instead of blinking out at the moment
+## of the kill.
+##
+## The spear is re-parented rather than positioned each frame: once it is a child
+## of the physical bone the physics carries it for free, it tumbles with the
+## limb, and it is freed along with the corpse without anything having to
+## remember it exists. Its world transform is preserved across the move so it
+## stays exactly where it entered the body.
+func _adopt_spears(source: Gub) -> void:
+	for entry: Dictionary in source.take_embedded_spears():
+		var spear: Node3D = entry["spear"]
+		if not is_instance_valid(spear):
+			continue
+		var body := _find_bone_body(String(entry["bone"]))
+		if body == null:
+			# No rigid body for that bone — a toe, or a rig without it. The
+			# torso is always present and is a better home than the floor.
+			body = _find_bone_body("spine.002")
+		if body == null:
+			spear.queue_free()
+			continue
+		var world := spear.global_transform
+		spear.get_parent().remove_child(spear)
+		body.add_child(spear)
+		spear.global_transform = world
+		if spear.has_method("mark_embedded"):
+			spear.call("mark_embedded")
 
 
 func _find_bone_body(bone_name: String) -> PhysicalBone3D:

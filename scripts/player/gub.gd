@@ -461,7 +461,35 @@ func kill(killer_id: int, cause: Cause = Cause.UNKNOWN) -> void:
 	died.emit(killer_id, cause)
 
 
+## Spears that struck this Gub and are waiting for a corpse to be handed to.
+## Each entry is `{"spear": Node3D, "bone": String}`. It is normally emptied
+## within the same frame by `GubRagdoll`; anything still here at the next
+## respawn belongs to a death that produced no corpse and is thrown away.
+var _pending_spears: Array[Dictionary] = []
+
+
+## Park a spear on this Gub until the corpse for this death exists.
+func embed_spear(spear: Node3D, bone: String) -> void:
+	_pending_spears.append({"spear": spear, "bone": bone})
+
+
+## Hand every parked spear to the caller and forget them.
+func take_embedded_spears() -> Array[Dictionary]:
+	var taken := _pending_spears
+	_pending_spears = []
+	return taken
+
+
+func _drop_pending_spears() -> void:
+	for entry: Dictionary in _pending_spears:
+		var spear: Node3D = entry["spear"]
+		if is_instance_valid(spear):
+			spear.queue_free()
+	_pending_spears.clear()
+
+
 func revive_at(spawn: Transform3D) -> void:
+	_drop_pending_spears()
 	alive = true
 	velocity = Vector3.ZERO
 	global_position = spawn.origin
