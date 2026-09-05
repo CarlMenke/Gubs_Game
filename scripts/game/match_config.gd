@@ -52,7 +52,12 @@ const TEAM_NONE := -1
 @export_range(2.0, 25.0) var lure_radius: float = 9.0
 @export_range(0.2, 5.0) var lure_hold: float = 1.4
 @export_range(1.0, 60.0) var lure_pull_strength: float = 18.0
-@export_range(0.5, 5.0) var lure_fuse: float = 0.35
+## The delay between the lure landing and the pull firing — the window in which
+## seeing it land is worth anything. This defaulted to 0.35 while its own range
+## started at 0.5, so `_clamp_all` silently raised every fresh config to 0.5 and
+## the declared default was never the value anyone actually played with. The
+## range wins: half a second is already a short fuse.
+@export_range(0.5, 5.0) var lure_fuse: float = 0.5
 
 @export_range(MIN_PLAYERS, MAX_PLAYERS) var max_players: int = MAX_PLAYERS
 

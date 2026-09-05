@@ -18,6 +18,12 @@ const MODEL := preload("res://art/generated/lure.glb")
 
 enum Phase { FLYING, ARMED, PULLING, SPENT }
 
+## Emitted host-side the instant the lure fires, carrying the peer ids it caught.
+## The pull itself is applied on each victim's own client (movement is
+## client-authoritative), so this is the only place the *whole* victim list
+## exists — which makes it what feedback and the testbeds have to listen to.
+signal caught(victim_ids: Array)
+
 const GRAVITY := 22.0
 const MAX_FLIGHT := 5.0
 const SPIN_SPEED := 5.0
@@ -136,6 +142,7 @@ func _tick_fuse(delta: float) -> void:
 func _catch() -> void:
 	if not Net.is_host:
 		return
+	var victims: Array = []
 	for gub in get_tree().get_nodes_in_group("gubs"):
 		var target := gub as Gub
 		if target == null or not target.alive:
@@ -145,9 +152,24 @@ func _catch() -> void:
 		# Line of sight, so a lure does not yank people through the island.
 		if not _can_see(target):
 			continue
-		_pull_target.rpc_id(target.peer_id, global_position, _strength, _hold)
+		# Credit the lurer if this Gub dies shortly afterwards. Pulling someone
+		# off the edge of the island is a kill the lure earned, but nothing the
+		# void-death code could attribute on its own — it only sees a Gub that
+		# fell. `note_attack` is what carries that intent forward.
+		if target.peer_id != owner_peer_id:
+			MatchState.note_attack(target.peer_id, owner_peer_id)
+		victims.append(target.peer_id)
+		# Exactly one of these, never both. Sending to yourself is refused
+		# outright by a `call_remote` RPC, and sending to a peer that is not
+		# connected — a fake roster entry in a testbed, or anyone who dropped
+		# between the sweep and this line in a real match — is an error too.
+		# Both used to be logged on every lure that caught the host or a
+		# departing player.
 		if target.peer_id == multiplayer.get_unique_id():
 			_pull_target(global_position, _strength, _hold)
+		elif multiplayer.get_peers().has(target.peer_id):
+			_pull_target.rpc_id(target.peer_id, global_position, _strength, _hold)
+	caught.emit(victims)
 
 
 func _can_see(target: Gub) -> bool:

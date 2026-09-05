@@ -28,10 +28,18 @@ const THROW_OFFSET := Vector3(0.34, 0.0, 0.0)
 const MIN_AIM_DISTANCE := 3.0
 const MAX_AIM_DISTANCE := 220.0
 
-## How far in front the mushroom is planted, and how far the lure is lobbed if
-## the crosshair is on open sky.
+## How far in front the mushroom is planted.
 const MUSHROOM_DISTANCE := 2.1
-const LURE_SPEED := 17.0
+
+## Launch speed of the lure. With LURE_GRAVITY this sets the furthest it can be
+## thrown at all — `s^2 / g`, about 22 m on the flat, which is a deliberate
+## limit: the lure is a tool for pulling someone out of nearby cover, not for
+## reaching across the island.
+const LURE_SPEED := 22.0
+## Must match `Lure.GRAVITY`, which integrates the flight. The arc is solved
+## here and flown there, so if these disagree the lure lands somewhere other
+## than where the thrower aimed.
+const LURE_GRAVITY := 22.0
 
 const LAYER_WORLD := 1
 const LAYER_PLAYER := 2
@@ -283,38 +291,76 @@ func _prune_mushrooms() -> void:
 
 # -------------------------------------------------------------------- lure ---
 
+## The lure is thrown at a *point*, not along a direction, because it is slow
+## enough for gravity to matter: fired flat at the crosshair it dropped after
+## about five metres regardless of where you were aiming, which made it
+## impossible to place. The host solves the arc that actually lands on the aim
+## point — see `_lob_velocity`.
 func try_throw_lure() -> void:
 	if lure_cooldown() > 0.0:
 		return
 	var origin := _throw_origin()
-	var direction := (_aim_point() - origin).normalized()
+	var target := _aim_point()
 	_lure_ready_at = _now() + _config.lure_cooldown
 	cooldowns_changed.emit()
 	if Net.is_host:
-		_host_throw_lure(origin, direction)
+		_host_throw_lure(origin, target)
 	else:
-		_request_lure.rpc_id(1, origin, direction)
+		_request_lure.rpc_id(1, origin, target)
 
 
 @rpc("any_peer", "call_remote", "reliable")
-func _request_lure(origin: Vector3, direction: Vector3) -> void:
+func _request_lure(origin: Vector3, target: Vector3) -> void:
 	if not Net.is_host or multiplayer.get_remote_sender_id() != _gub.peer_id:
 		return
-	_host_throw_lure(origin, direction)
+	_host_throw_lure(origin, target)
 
 
-func _host_throw_lure(origin: Vector3, direction: Vector3) -> void:
+func _host_throw_lure(origin: Vector3, target: Vector3) -> void:
 	if not _gub.alive or _now() < _server_lure_ready_at:
 		return
 	if origin.distance_to(_gub.global_position) > 3.0:
 		origin = _throw_origin()
 	_server_lure_ready_at = _now() + _config.lure_cooldown
-	_do_throw_lure.rpc(origin, direction.normalized())
-	_do_throw_lure(origin, direction.normalized())
+	# The client chooses a point; the host chooses the velocity. Sending a
+	# velocity over the wire instead would let a modified client fling a lure at
+	# any speed it liked.
+	var velocity := _lob_velocity(origin, target)
+	_do_throw_lure.rpc(origin, velocity)
+	_do_throw_lure(origin, velocity)
+
+
+## Launch velocity that carries a projectile of speed `LURE_SPEED` from `from`
+## to `to` under `LURE_GRAVITY`.
+##
+## Of the two arcs that hit any reachable point, this picks the flatter one: it
+## arrives sooner and reads as a thrown object rather than a mortar shell. If
+## the point is out of range there is no solution at all, and the throw falls
+## back to 45 degrees — the angle that goes furthest — aimed the right way, so
+## an over-ambitious throw still travels as far as it possibly can instead of
+## dropping at the thrower's feet.
+func _lob_velocity(from: Vector3, to: Vector3) -> Vector3:
+	var delta := to - from
+	var flat := Vector3(delta.x, 0.0, delta.z)
+	var distance := flat.length()
+	if distance < 0.05:
+		return Vector3.UP * LURE_SPEED
+	var forward := flat / distance
+
+	var speed_sq := LURE_SPEED * LURE_SPEED
+	# Solving `y = x·tanθ − g·x² / (2·s²·cos²θ)` for θ gives this discriminant;
+	# negative means no launch angle at this speed reaches the point.
+	var discriminant := speed_sq * speed_sq - LURE_GRAVITY * (
+		LURE_GRAVITY * distance * distance + 2.0 * delta.y * speed_sq)
+	if discriminant < 0.0:
+		return (forward + Vector3.UP).normalized() * LURE_SPEED
+
+	var angle := atan2(speed_sq - sqrt(discriminant), LURE_GRAVITY * distance)
+	return (forward * cos(angle) + Vector3.UP * sin(angle)) * LURE_SPEED
 
 
 @rpc("authority", "call_remote", "reliable")
-func _do_throw_lure(origin: Vector3, direction: Vector3) -> void:
+func _do_throw_lure(origin: Vector3, velocity: Vector3) -> void:
 	_lure_ready_at = _now() + _config.lure_cooldown
 	cooldowns_changed.emit()
 
@@ -324,7 +370,7 @@ func _do_throw_lure(origin: Vector3, direction: Vector3) -> void:
 
 	var lure := LURE.instantiate()
 	_spawn_root().add_child(lure)
-	lure.call("launch_from", origin, direction * LURE_SPEED, _gub.peer_id, _config)
+	lure.call("launch_from", origin, velocity, _gub.peer_id, _config)
 
 
 # ------------------------------------------------------------------- shared ---

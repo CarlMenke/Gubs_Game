@@ -31,9 +31,17 @@ const DUMMY_BASE := 900
 ##   arc      — a long throw at the far wall, to see how much a spear drops
 ##   miss     — a throw into the dirt, to check the spear sticks and stays put
 ##   mushroom — one planted, to check it lands on the ground the right size
-##   lure     — a lure lobbed into three dummies, held through the pull
+##   lure     — a lure lobbed at the middle dummy, held through the pull.
+##              Note what this mode can and cannot show: the catch *decision* is
+##              the host's and is reported here, but the pull itself is applied
+##              on each victim's own client, and these dummies are fake roster
+##              entries with no client behind them. So the dummies will be
+##              listed as caught and will not visibly move. Only the local Gub
+##              can actually be dragged — see `lure_self`.
+##   lure_self— a lure dropped at the player's own feet, which is the only way
+##              to watch the pull actually move a Gub in a one-client testbed
 ##   free     — no script; play it yourself
-const MODES := ["flight", "hit", "arc", "miss", "mushroom", "lure", "free"]
+const MODES := ["flight", "hit", "arc", "miss", "mushroom", "lure", "lure_self", "free"]
 
 ## Every scripted mode is watched from the touchline. The thrower's own camera
 ## looks *along* the throw, where the spear is a dot behind the Gub's head and a
@@ -47,6 +55,7 @@ const VIEWS := {
 	"miss": {"eye": Vector3(9.0, 3.0, -9.0), "look": Vector3(0.0, 0.6, -13.0), "fov": 50.0},
 	"mushroom": {"eye": Vector3(6.0, 2.6, 9.5), "look": Vector3(0.0, 1.1, 7.2), "fov": 50.0},
 	"lure": {"eye": Vector3(12.0, 8.0, -3.0), "look": Vector3(-3.0, 1.0, -12.0), "fov": 60.0},
+	"lure_self": {"eye": Vector3(9.0, 3.2, 12.0), "look": Vector3(0.0, 1.0, 7.0), "fov": 55.0},
 }
 
 const PLAYER_SPOT := Vector3(0.0, 0.1, 9.0)
@@ -89,8 +98,9 @@ func _ready() -> void:
 	# mushroom is parented to the scene root and nothing can be swept up later.
 	_items.add_to_group("spawned_items")
 	add_child(_items)
-	if _trace:
-		_items.child_entered_tree.connect(_watch_spawned)
+	# The lure reports its own catch list unconditionally: unlike a spear, there
+	# is no frame in which "who did this pull?" is visible on screen.
+	_items.child_entered_tree.connect(_watch_spawned)
 
 	_players = Node3D.new()
 	_players.name = "Players"
@@ -137,7 +147,7 @@ func _dummy_count() -> int:
 	match _mode:
 		"lure":
 			return 3
-		"arc", "miss", "mushroom":
+		"arc", "miss", "mushroom", "lure_self":
 			return 1
 		_:
 			return 2
@@ -164,6 +174,25 @@ func _place_everyone() -> void:
 		var dummy := MatchState.gubs.get(DUMMY_BASE + i) as Gub
 		if dummy != null:
 			dummy.revive_at(_facing(DUMMY_SPOTS[i], PLAYER_SPOT))
+			_stand_still(dummy)
+
+
+## Make a dummy read as a remote Gub whose client is publishing "standing on the
+## ground, not moving".
+##
+## A remote Gub takes its whole animation state from replicated fields, and
+## nothing replicates for a fake roster entry — so `sync_grounded` sat at its
+## default `false` and every dummy played the Jump clip forever, splayed out
+## mid-leap in every screenshot this tool has ever produced. That is the same
+## class of bug as the real one this testbed found in `GubAnimator`, except here
+## the missing publisher is the testbed itself.
+func _stand_still(dummy: Gub) -> void:
+	dummy.sync_position = dummy.global_position
+	dummy.sync_yaw = dummy.body_yaw
+	dummy.sync_velocity = Vector3.ZERO
+	dummy.sync_grounded = true
+	dummy.sync_crouching = false
+	dummy.sync_sliding = false
 
 
 func _on_player_killed(victim_id: int, killer_id: int, cause: int) -> void:
@@ -204,7 +233,7 @@ func _physics_process(_delta: float) -> void:
 	match _mode:
 		"mushroom":
 			combat.try_place_mushroom()
-		"lure":
+		"lure", "lure_self":
 			combat.try_throw_lure()
 		_:
 			combat.try_throw_spear()
@@ -218,6 +247,10 @@ func _target_point() -> Vector3:
 			return Vector3(0.0, 0.05, -14.0)
 		"lure":
 			return DUMMY_SPOTS[1] + Vector3.UP * 0.2
+		"lure_self":
+			# Just in front of the player's own feet, so the pull has something
+			# to drag and the camera has something to show.
+			return PLAYER_SPOT + Vector3(0.0, 0.05, -3.0)
 		_:
 			var dummy := MatchState.gubs.get(DUMMY_BASE) as Gub
 			if dummy == null:
@@ -227,8 +260,16 @@ func _target_point() -> Vector3:
 
 ## Say what a spear actually hit, which is the one thing a still frame cannot.
 func _watch_spawned(node: Node) -> void:
+	if node.has_signal("caught"):
+		node.connect("caught", func(victim_ids: Array) -> void:
+			var names: Array[String] = []
+			for id: int in victim_ids:
+				names.append(Net.player_name(id))
+			print("combat_range: lure caught %d — %s"
+				% [victim_ids.size(), ", ".join(names) if names else "nobody"]))
+		return
 	var spear := node as SpearProjectile
-	if spear == null:
+	if spear == null or not _trace:
 		return
 	spear.struck_gub.connect(func(victim: Gub, point: Vector3, bone: String) -> void:
 		print("  >> struck %s at %v (bone %s)" % [victim.display_name, point, bone]))
