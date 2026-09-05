@@ -199,8 +199,10 @@ static func _build_leaves(parent: Node3D, island: IslandGenerator,
 	mat.turbulence_enabled = true
 	mat.turbulence_noise_strength = 0.5
 	mat.turbulence_noise_scale = 1.8
-	mat.scale_min = 0.5
-	mat.scale_max = 1.0
+	# A MegaKit petal is two thirds of a metre wide at scale 1. Falling leaves
+	# that size read as sheets of paper; a quarter of that reads as a leaf.
+	mat.scale_min = 0.22
+	mat.scale_max = 0.48
 	mat.color_ramp = _fade_ramp(Color(0.85, 0.78, 0.55))
 
 	# Real kit petals, not billboards: a leaf that tumbles has to have two sides
@@ -213,7 +215,7 @@ static func _build_leaves(parent: Node3D, island: IslandGenerator,
 	leaves.name = "FallingLeaves"
 	leaves.draw_pass_1 = petal
 	leaves.process_material = mat
-	leaves.amount = 70
+	leaves.amount = 48
 	leaves.lifetime = 11.0
 	leaves.randomness = 0.9
 	leaves.preprocess = 11.0

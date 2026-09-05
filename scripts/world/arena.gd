@@ -86,9 +86,12 @@ func _ready() -> void:
 	_build_torches()
 	Ambience.build(self, island, scatter.canopy_points, map_seed)
 
-	print("arena: Whisperbloom Hollow built from seed %d in %d ms (%d props, %d spawns)" % [
-		map_seed, Time.get_ticks_msec() - started, scatter.instances,
-		spawn_points.size()])
+	print("arena: Whisperbloom Hollow built from seed %d in %d ms" % [
+		map_seed, Time.get_ticks_msec() - started])
+	print("  %d props (~%dk triangles), %d spawns, %d torches" % [
+		scatter.instances, scatter.triangles / 1000, spawn_points.size(),
+		$Torches.get_child_count()])
+	print("  scatter %s" % scatter.counts)
 
 	# The handover. Every peer calls this for itself; only the host acts on it,
 	# and it is what starts the warmup.
@@ -168,10 +171,12 @@ func _build_spawn_points() -> void:
 		var yaw := Gub.yaw_towards(Vector3(-found.x, 0.0, -found.y).normalized())
 		spawn_points.append(Transform3D(Basis(Vector3.UP, yaw), ground))
 
-		# Published to the scatter so no tree grows on a pad, and a wider, sparse
-		# ring so a Gub can see out of its own spawn.
-		landmarks.keepouts.append(PropScatter.Keepout.new(found, 1.6, true))
-		landmarks.keepouts.append(PropScatter.Keepout.new(found, 4.2, false))
+		# Published to the scatter so no tree or boulder grows on a pad and a Gub
+		# can see out of its own spawn. Deliberately a *sparse-only* keepout:
+		# an earlier version also kept the dense layers off, and every pad came
+		# out as a bald circle of bare earth four metres across — which is both
+		# ugly and a free map marker showing everyone where the spawns are.
+		landmarks.keepouts.append(PropScatter.Keepout.new(found, 3.6, false))
 
 
 func _solve_spawn(mass: IslandGenerator.Landmass, bearing: float,
@@ -208,6 +213,12 @@ func _spawn_is_good(spot: Vector2) -> bool:
 		# Only the hard keepouts matter: a spawn is allowed to be on the grassy
 		# skirt of a landmark, just not inside the landmark.
 		if keepout.blocks_dense and spot.distance_to(keepout.centre) < keepout.radius + 1.5:
+			return false
+	# And never on top of a torch. Torches are placed before the spawn ring is
+	# solved, and a pad that lands on one puts a player in the brightest circle
+	# on the island on their first frame, fully lit to everyone outside it.
+	for torch: Landmarks.TorchSpot in landmarks.torch_spots:
+		if spot.distance_to(Vector2(torch.position.x, torch.position.z)) < 3.5:
 			return false
 	return true
 

@@ -13,11 +13,22 @@ extends Node3D
 ## phase — sixteen of them never pulse together, which is the tell that gives a
 ## scripted flicker away.
 
-## Base energy of the light. Tuned against the fog: `arena_env.tres` runs
-## volumetric fog at 0.032 density and the light needs to punch a visible cone
-## through it without washing out the Gub standing in it.
-const LIGHT_ENERGY := 6.2
-const LIGHT_RANGE := 15.0
+## Base energy and reach of the light. Tuned against the fog — `arena_env.tres`
+## runs volumetric fog at 0.032 density and the light has to punch a visible cone
+## through it — and, much more importantly, against each other.
+##
+## The first pass ran 15 m of reach from fourteen torches on a 50 m island, and
+## the pools met everywhere: the whole map came out evenly orange, which is worse
+## than evenly dark. Torches are the key light (D-009), so what they light and
+## what they leave alone *is* the lighting design, and that only exists if there
+## is unlit ground between them. At 10.5 m a torch owns a clearing and nothing
+## more, and a Gub crossing between two of them goes dark on the way.
+## Energy is low for an OmniLight because the ground it lands on is a big flat
+## upward-facing plane and the environment is tonemapped for a night: at 5.6 the
+## earth within four metres of a torch blew out to cream and the flame stopped
+## being the brightest thing in its own pool.
+const LIGHT_ENERGY := 2.6
+const LIGHT_RANGE := 10.5
 ## D-009: torch OmniLights want about this much volumetric fog energy, which is
 ## what turns the light into a visible halo rather than a bright patch of ground.
 const FOG_ENERGY := 2.0

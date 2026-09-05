@@ -85,7 +85,9 @@ func _build_materials() -> void:
 	_crystal.albedo_color = Color(0.45, 0.85, 0.95)
 	_crystal.emission_enabled = true
 	_crystal.emission = Color(0.35, 0.85, 0.95)
-	_crystal.emission_energy_multiplier = 4.5
+	# Enough to clear the 1.45 glow threshold and bloom, not so much that the
+	# facets clip to white and the gem becomes a featureless lozenge.
+	_crystal.emission_energy_multiplier = 2.8
 	_crystal.roughness = 0.25
 
 
@@ -150,9 +152,15 @@ func _build_shrine(parent: Node3D) -> void:
 	var glow := OmniLight3D.new()
 	glow.light_color = Color(0.42, 0.82, 0.95)
 	glow.light_energy = 3.2
-	glow.omni_range = 13.0
+	glow.omni_range = 9.0
 	glow.omni_attenuation = 1.5
-	glow.light_volumetric_fog_energy = 2.0
+	glow.light_volumetric_fog_energy = 0.9
+	# The one shadow-casting light that is not a torch. Without it the crystal
+	# shines straight down through the island and paints a bright blue patch on
+	# the rocky underside — which is only visible while falling to your death,
+	# but is unmistakable when you are.
+	glow.shadow_enabled = true
+	glow.shadow_bias = 0.05
 	glow.position = Vector3.UP * 1.9
 	shrine.add_child(glow)
 
@@ -171,16 +179,23 @@ func _build_shrine(parent: Node3D) -> void:
 # ------------------------------------------------------------------- grove ---
 
 ## The whisperblooms themselves: a stand of oversized glowing fungus in the
-## hollow. Scaling the kit's mushrooms 3-6x turns a piece of ground cover into
-## architecture, which is the cheapest fantasy landmark there is.
+## hollow. Scaling the kit's mushrooms turns a piece of ground cover into
+## architecture, which is the cheapest fantasy landmark there is — but there is a
+## ceiling on it. The first pass went to 5.6x, which on a 1.37 m Laetiporus is a
+## cap nearly eight metres across: from a spawn pad it filled half the screen
+## with pale fungus and hid the shrine behind it. At 1.5-2.9x the tallest caps
+## are around head height on a Gub and you can still see the map past them.
 func _build_grove(parent: Node3D) -> void:
 	var centre := Vector2(6.4, -6.1)
 	var grove := Node3D.new()
 	grove.name = "MushroomGrove"
 	parent.add_child(grove)
 
-	var caps := ["Mushroom_Laetiporus", "Mushroom_Common"]
-	for i in 11:
+	# Weighted toward the capped mushroom. `Mushroom_Laetiporus` is a bracket
+	# fungus: scaled up and laid flat, a stand of them reads as ice floes rather
+	# than as a grove, so it is the accent and not the crop.
+	var caps := ["Mushroom_Common", "Mushroom_Common", "Mushroom_Laetiporus"]
+	for i in 9:
 		var angle := _rng.randf_range(0.0, TAU)
 		var dist := sqrt(_rng.randf()) * 4.4
 		var spot := centre + Vector2(cos(angle), sin(angle)) * dist
@@ -191,7 +206,7 @@ func _build_grove(parent: Node3D) -> void:
 		var cap := MeshInstance3D.new()
 		cap.mesh = mesh
 		cap.position = island.surface_point(spot.x, spot.y) - Vector3.UP * 0.08
-		var big := _rng.randf_range(2.4, 5.6)
+		var big := _rng.randf_range(1.05, 2.05)
 		cap.scale = Vector3(big, big * _rng.randf_range(0.85, 1.25), big)
 		cap.rotation.y = _rng.randf_range(0.0, TAU)
 		# Override rather than replace: the kit's own albedo texture stays, and
@@ -224,10 +239,16 @@ func _glowing(mesh: Mesh, surface: int) -> StandardMaterial3D:
 	var source := mesh.surface_get_material(surface) as StandardMaterial3D
 	var mat := (source.duplicate() if source != null else StandardMaterial3D.new()) as StandardMaterial3D
 	mat.emission_enabled = true
-	mat.emission = Color(0.42, 0.68, 0.95)
+	mat.emission = Color(0.30, 0.60, 0.44)
 	# Below the 1.45 glow threshold on purpose: the caps should read as lit from
-	# within, not bloom like the torches do.
-	mat.emission_energy_multiplier = 1.15
+	# within, not bloom like the torches do. The kit's Laetiporus texture is
+	# already close to white, so this stays low enough that the emission tints
+	# the caps rather than washing them out.
+	mat.emission_energy_multiplier = 0.3
+	# The Laetiporus texture is close to white across half its cap, and under a
+	# torch that blew out to a featureless glare. Tinting the albedo down keeps
+	# the caps reading as fungus rather than as light fixtures.
+	mat.albedo_color = Color(0.58, 0.60, 0.52)
 	return mat
 
 
@@ -403,7 +424,7 @@ func _build_paths(parent: Node3D) -> void:
 				continue
 			_lay_stone(paths, spot, stones[_rng.randi_range(0, stones.size() - 1)],
 				_rng.randf_range(0.65, 0.95))
-			keepouts.append(PropScatter.Keepout.new(spot, 1.4, false))
+			keepouts.append(PropScatter.Keepout.new(spot, 1.0, false))
 		path_nodes.append(island.surface_point(to.x, to.y))
 
 		# Torches every few metres along the longer routes only. A lantern-lit

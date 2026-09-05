@@ -47,16 +47,39 @@ const RIM_DROOP_START := 0.80
 const RIM_DROOP := 1.6
 const RIM_DROOP_REFERENCE := 19.0
 
-## Colours. D-009 asks for terrain albedo above about (0.15, 0.18, 0.12) — below
-## that the sky ambient has nothing to work with and the island crushes to black
-## outside torch range. Every grass tone here clears that; the underside is
-## allowed to go darker because its job is to be a silhouette.
-const GRASS_DARK := Color(0.155, 0.235, 0.135)
-const GRASS_LIGHT := Color(0.255, 0.365, 0.185)
-const GRASS_MOSS := Color(0.165, 0.30, 0.235)
-const DIRT := Color(0.245, 0.205, 0.155)
-const ROCK_HIGH := Color(0.205, 0.195, 0.175)
-const ROCK_LOW := Color(0.115, 0.115, 0.125)
+## Colours, sitting just above the albedo floor D-009 asks for —
+## Color(0.15, 0.18, 0.12) — and that floor turned out to be a ceiling too.
+##
+## Worth recording, because it cost most of an afternoon: the ground first
+## rendered pure black, so these were doubled on the theory that the terrain was
+## too dark to catch any sky ambient. It was not. The mesh was inside-out (see
+## `_packed`) and simply was not being drawn. With the winding fixed, the doubled
+## values made the ground the *brightest* surface in the frame — a big flat
+## upward-facing plane collects more sky ambient than anything else on the
+## island, so it needs a lower albedo than the props standing on it, not a
+## higher one. These are back where D-009 put them.
+## The green channel is roughly twice the red, which is more saturation than a
+## grass albedo normally wants. It is there to survive the light: the sky's
+## `forest_glow` band is a warm orange ring all the way round the horizon and the
+## torches are warmer still, so a merely-greenish ground renders as sand. Under
+## this light these read as grass; under a neutral one they would read as too
+## green, and this map never sees a neutral one.
+const GRASS_DARK := Color(0.098, 0.205, 0.088)
+const GRASS_LIGHT := Color(0.170, 0.320, 0.130)
+const GRASS_MOSS := Color(0.105, 0.258, 0.188)
+const DIRT := Color(0.200, 0.163, 0.115)
+## Bare earth where the top surface runs out at the rim. Separate from the rock
+## below it: the two meet at the lip and want different values, warm dirt above
+## and cold stone below, which is most of what makes the lip read as an edge.
+const RIM_EARTH := Color(0.180, 0.148, 0.108)
+## The rocky root is the one part allowed under the floor, and it needs to be:
+## its whole job is to be a silhouette, and it is the one large surface on the
+## map that faces *outward*, straight into the sky's bright horizon band. At the
+## same albedo as the grass it came out paler than the ground above it — a
+## floating island resting on a mound of clay — so it is deliberately about a
+## third of it.
+const ROCK_HIGH := Color(0.088, 0.085, 0.080)
+const ROCK_LOW := Color(0.046, 0.046, 0.053)
 
 
 ## One floating chunk of ground: a top surface and the rocky root beneath it.
@@ -189,7 +212,10 @@ func _setup_landmasses() -> void:
 	main.base_radius = 19.0
 	main.rim_amp = 2.2
 	main.rim_phase = rng.randf_range(0.0, TAU)
-	main.depth = 17.0
+	# About half the island's width. Shallower than this and the underside reads
+	# as the bottom of a bowl; the void starts at -45 (`MatchState.VOID_HEIGHT`)
+	# so there is room for the root to be a real shape.
+	main.depth = 21.0
 	landmasses.append(main)
 
 	# Bearings are fixed, not seeded: the bridges, the spawn ring and the
@@ -377,7 +403,13 @@ func _build_landmass(mass: Landmass) -> Node3D:
 
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, surface)
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, underside)
+	# The root is drawn faceted while the ground above it is drawn smooth. That
+	# is an art decision, not an oversight: the MegaKit's rocks and trees are
+	# hard-edged low-poly, and a smoothly-shaded underside read as a mound of
+	# clay that the props on top of it did not belong to. Faceting it also makes
+	# the crag noise and the five buttress ribs actually visible — smooth normals
+	# had been averaging them into nothing.
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _faceted(underside))
 	mesh.surface_set_material(0, _grass_material)
 	mesh.surface_set_material(1, _rock_material)
 
@@ -432,18 +464,21 @@ func _build_surface(mass: Landmass) -> Array:
 			colours.append(_ground_colour(mass, x, z, t))
 			uvs.append(Vector2(x, z) * 0.12)
 
+	# Wound so that the *outward* (upward) side is the front face. See the note
+	# on `_packed` for why that is the opposite of what it looks like it should
+	# be, and what it costs to get wrong.
 	for j in SECTORS:
 		var a := 1 + j
 		var b := 1 + (j + 1) % SECTORS
-		indices.append_array([0, b, a])
+		indices.append_array([0, a, b])
 
 	for i in range(1, SURFACE_RINGS):
 		var inner := 1 + (i - 1) * SECTORS
 		var outer := 1 + i * SECTORS
 		for j in SECTORS:
 			var jn := (j + 1) % SECTORS
-			indices.append_array([inner + j, outer + jn, outer + j])
-			indices.append_array([inner + j, inner + jn, outer + jn])
+			indices.append_array([inner + j, outer + j, outer + jn])
+			indices.append_array([inner + j, outer + jn, inner + jn])
 
 	return _packed(verts, colours, uvs, indices)
 
@@ -460,14 +495,22 @@ func _build_underside(mass: Landmass) -> Array:
 	var lowest := INF
 	for k in range(0, UNDERSIDE_RINGS + 1):
 		var s := float(k) / float(UNDERSIDE_RINGS)
-		# Shrink slowly at first with a slight bulge, then taper hard: that is
-		# the shape of a chunk torn out of bedrock, rather than a party hat.
-		var shrink: float = pow(1.0 - s, 0.58) * (1.0 + 0.18 * sin(PI * s))
-		var drop: float = mass.depth * pow(s, 1.35)
+		# Shrink close to linearly with a slight bulge under the rim, and drop
+		# close to linearly too. The first pass used a steep power on both and
+		# rendered as a shallow bowl with a sudden point on the bottom: nearly
+		# all of the vertical extent was being spent where the radius was already
+		# tiny, so the root looked like a hull rather than something torn out of
+		# bedrock.
+		var shrink: float = pow(1.0 - s, 0.85) * (1.0 + 0.20 * sin(PI * s))
+		var drop: float = mass.depth * pow(s, 1.12)
 		for j in SECTORS:
 			var theta := TAU * float(j) / float(SECTORS)
 			var edge := mass.rim_radius(theta)
-			var r := edge * shrink
+			# Vertical buttresses: five ribs running down the root, strongest
+			# halfway and gone at both ends so the rim still welds and the tip
+			# still comes to a point. Integer harmonic, so it closes at TAU.
+			var ribs := 1.0 + 0.24 * sin(theta * 5.0 + mass.rim_phase * 2.0) * sin(PI * s)
+			var r := edge * shrink * ribs
 			var x := mass.centre.x + cos(theta) * r
 			var z := mass.centre.y + sin(theta) * r
 			var rim_y := _height_on(mass, mass.centre.x + cos(theta) * edge,
@@ -476,7 +519,7 @@ func _build_underside(mass: Landmass) -> Array:
 			if k > 0:
 				# Crag displacement, faded in from the rim so the seam stays
 				# welded and faded out at the tip so it still comes to a point.
-				var amount := sin(PI * s) * 1.35 * (mass.depth / 17.0)
+				var amount := sin(PI * s) * 2.1 * (mass.depth / 17.0)
 				var n := _crag_noise.get_noise_3d(x * 1.1, y * 0.8, z * 1.1)
 				var outward := Vector3(cos(theta), 0.0, sin(theta))
 				var displaced := Vector3(x, y, z) + outward * n * amount
@@ -515,19 +558,31 @@ func _build_underside(mass: Landmass) -> Array:
 ## Grass, dirt and rock painted from slope, height and a low-frequency tint, so
 ## the ground has patches without a single texture being loaded.
 func _ground_colour(mass: Landmass, x: float, z: float, t: float) -> Color:
+	# Two scales of mottling. The broad one makes meadows and shaded patches; the
+	# fine one gives the surface grain at the distance a player actually stands
+	# from it, without which a metre of ground is one flat colour.
 	var tint := _tint_noise.get_noise_2d(x, z) * 0.5 + 0.5
+	tint = clampf(tint + _tint_noise.get_noise_2d(x * 7.0, z * 7.0) * 0.14, 0.0, 1.0)
 	var colour := GRASS_DARK.lerp(GRASS_LIGHT, tint)
 	colour = colour.lerp(GRASS_MOSS, clampf(_detail_noise.get_noise_2d(x * 0.6, z * 0.6)
 		* 0.5 + 0.5, 0.0, 1.0) * 0.45)
 
 	# Steep faces lose their grass. This is the term that makes the knoll read as
-	# a hill rather than as a green blister.
-	var steep := smoothstep(0.42, 0.85, slope_at(x, z, 0.9))
+	# a hill rather than as a green blister — but the first thresholds were low
+	# enough that the gentle shoulder counted as a cliff and the whole map went
+	# the colour of sand.
+	var steep := smoothstep(0.58, 1.05, slope_at(x, z, 0.9))
 	colour = colour.lerp(DIRT, steep)
 
-	# The last stretch before the rim turns to bare earth and stone, which is
-	# what sells the transition into the rocky root below.
-	colour = colour.lerp(ROCK_HIGH, smoothstep(0.88, 1.0, t))
+	# The last stretch before the rim turns to bare earth, which is what sells
+	# the transition into the rocky root below. Measured in **metres** from the
+	# lip rather than as a fraction of the radius: on a fraction, the same band
+	# that is a two-metre skirt on the main island swallows an entire five-metre
+	# islet, and the islets came out looking like sandbanks.
+	var edge := mass.rim_radius((Vector2(x, z) - mass.centre).angle())
+	var from_rim := (1.0 - t) * edge
+	colour = colour.lerp(RIM_EARTH,
+		1.0 - smoothstep(0.0, minf(1.8, edge * 0.12), from_rim))
 
 	# Height darkening: the hollow sits in its own shade even before the fog and
 	# the torches get to it, which is most of why the middle of the map reads as
@@ -541,7 +596,7 @@ func _rock_colour(s: float, x: float, z: float) -> Color:
 	var vein := _crag_noise.get_noise_2d(x * 2.0, z * 2.0) * 0.5 + 0.5
 	var base := ROCK_HIGH.lerp(ROCK_LOW, smoothstep(0.0, 0.75, s))
 	# Moss creeping over the lip, only in the first metre or so of the root.
-	base = base.lerp(GRASS_MOSS, (1.0 - smoothstep(0.0, 0.14, s)) * 0.55)
+	base = base.lerp(GRASS_MOSS.darkened(0.4), (1.0 - smoothstep(0.0, 0.09, s)) * 0.4)
 	return base.lerp(base.darkened(0.25), vein)
 
 
@@ -553,6 +608,16 @@ func _rock_colour(s: float, x: float, z: float) -> Color:
 ## `SurfaceTool` would do this too, but it would first re-index the mesh by
 ## hashing every vertex — work that is pure waste here, because the ring
 ## topology already says exactly which triangles share which vertex.
+##
+## **The cross product is `(c - a) x (b - a)`, not the other way round.** Godot
+## draws a triangle front-face-first when its vertices are *clockwise* as seen
+## from the front, which makes the outward normal of `(a, b, c)` the reverse of
+## the one every textbook writes down. Building it the intuitive way produces a
+## mesh that is inside-out: the top surface is culled when you look down at it,
+## so you see straight through the island to the sky below, and — because the
+## props standing on it are lit perfectly normally — it presents as a *lighting*
+## bug. Two rounds of chasing ambient energy, albedo floors and shadow acne went
+## past before a flat unshaded override showed the ground simply was not there.
 static func _packed(verts: PackedVector3Array, colours: PackedColorArray,
 		uvs: PackedVector2Array, indices: PackedInt32Array) -> Array:
 	var normals := PackedVector3Array()
@@ -563,7 +628,7 @@ static func _packed(verts: PackedVector3Array, colours: PackedColorArray,
 		var ia := indices[i]
 		var ib := indices[i + 1]
 		var ic := indices[i + 2]
-		var face := (verts[ib] - verts[ia]).cross(verts[ic] - verts[ia])
+		var face := (verts[ic] - verts[ia]).cross(verts[ib] - verts[ia])
 		# Not normalised: the raw cross product is twice the triangle's area, so
 		# accumulating it weights each face by how much of the surface it is.
 		normals[ia] += face
@@ -583,6 +648,46 @@ static func _packed(verts: PackedVector3Array, colours: PackedColorArray,
 	arrays[Mesh.ARRAY_COLOR] = colours
 	arrays[Mesh.ARRAY_INDEX] = indices
 	return arrays
+
+
+## Re-emit an indexed surface with one normal per triangle instead of one per
+## vertex, for hard-edged low-poly shading. Costs three vertices per triangle
+## instead of a shared ring, which for a few thousand triangles of scenery is a
+## trade worth making for the silhouette it buys.
+static func _faceted(arrays: Array) -> Array:
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+
+	var out_verts := PackedVector3Array()
+	var out_normals := PackedVector3Array()
+	var out_colours := PackedColorArray()
+	var out_uvs := PackedVector2Array()
+
+	var i := 0
+	while i < indices.size():
+		var ia := indices[i]
+		var ib := indices[i + 1]
+		var ic := indices[i + 2]
+		# Same handedness as `_packed`: Godot front faces are clockwise.
+		var face := (verts[ic] - verts[ia]).cross(verts[ib] - verts[ia]).normalized()
+		if face.length_squared() < 0.5:
+			face = Vector3.DOWN
+		for index: int in [ia, ib, ic]:
+			out_verts.append(verts[index])
+			out_normals.append(face)
+			out_colours.append(colours[index])
+			out_uvs.append(uvs[index])
+		i += 3
+
+	var out := []
+	out.resize(Mesh.ARRAY_MAX)
+	out[Mesh.ARRAY_VERTEX] = out_verts
+	out[Mesh.ARRAY_NORMAL] = out_normals
+	out[Mesh.ARRAY_TEX_UV] = out_uvs
+	out[Mesh.ARRAY_COLOR] = out_colours
+	return out
 
 
 ## Expand an indexed surface array into the flat triangle soup that

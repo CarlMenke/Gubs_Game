@@ -31,8 +31,21 @@ const DUMMY_COUNT := 5
 const VIEWS := ["wide", "under", "eye", "shrine", "grove", "arch", "bridge",
 	"spawns", "hollow"]
 
+## Lighting diagnostics. The map is lit almost entirely by ambient and torches,
+## which makes "this surface is black" ambiguous between four different causes —
+## no ambient reaching it, inverted normals, shadow acne, or an albedo that is
+## simply too dark. These flags take one suspect out of the picture at a time.
+const FLAGS := {
+	"noshadow": "turn the moon's shadows off",
+	"noon": "moon at daylight energy, to see the geometry plainly",
+	"nofog": "volumetric fog off, so surfaces are judged unmediated",
+	"flatterrain": "terrain in flat unshaded magenta, to see where it actually is",
+	"notorch": "every torch light off, leaving only the moon and the sky ambient",
+}
+
 var _view: String = "wide"
 var _run_match: bool = false
+var _flags: Dictionary = {}
 var _arena: Arena
 var _frames: int = 0
 
@@ -44,6 +57,8 @@ func _ready() -> void:
 			_view = arg
 		elif arg == "match":
 			_run_match = true
+		elif FLAGS.has(arg):
+			_flags[arg] = true
 
 	# The session has to exist before the arena's `_ready` runs, because that is
 	# where `register_arena` is called and where the host starts the warmup.
@@ -53,9 +68,41 @@ func _ready() -> void:
 	_arena = ARENA.instantiate() as Arena
 	add_child(_arena)
 
+	_apply_diagnostics()
 	_build_camera()
 	if _run_match:
 		_report_roster()
+
+
+## Reach into the built arena and switch things off. Only ever runs when a flag
+## was passed, so the default render is always the real one.
+func _apply_diagnostics() -> void:
+	if _flags.is_empty():
+		return
+	var moon := _arena.get_node_or_null("Moon") as DirectionalLight3D
+	if moon != null:
+		if _flags.has("noshadow"):
+			moon.shadow_enabled = false
+		if _flags.has("noon"):
+			moon.light_energy = 3.0
+			moon.light_color = Color(1, 1, 1)
+	if _flags.has("notorch"):
+		for torch in _arena.get_node("Torches").get_children():
+			(torch.get_node("Light") as OmniLight3D).visible = false
+	if _flags.has("flatterrain"):
+		var flat := StandardMaterial3D.new()
+		flat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		flat.albedo_color = Color(1.0, 0.0, 0.7)
+		for chunk in _arena.get_node("Terrain").get_children():
+			(chunk.get_node("Terrain") as MeshInstance3D).material_override = flat
+	if _flags.has("nofog"):
+		var world := _arena.get_node_or_null("Environment") as WorldEnvironment
+		if world != null:
+			# Duplicated, so a diagnostic run can never write through to the
+			# shared `arena_env.tres` on disk.
+			world.environment = world.environment.duplicate()
+			world.environment.volumetric_fog_enabled = false
+	print("preview_island: diagnostics %s" % ", ".join(_flags.keys()))
 
 
 func _start_session() -> void:

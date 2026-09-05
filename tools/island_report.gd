@@ -98,7 +98,42 @@ func _mesh_stats(island: IslandGenerator) -> void:
 			continue
 		for s in visual.mesh.get_surface_count():
 			var arrays := visual.mesh.surface_get_arrays(s)
-			tris += (arrays[Mesh.ARRAY_INDEX] as PackedInt32Array).size() / 3
-			verts += (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+			var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			verts += points.size()
+			# The faceted underside carries no index buffer at all, so its
+			# triangle count is its vertex count over three.
+			var indices: Variant = arrays[Mesh.ARRAY_INDEX]
+			tris += (int((indices as PackedInt32Array).size()) if indices != null
+				else points.size()) / 3
 	print("  terrain  %d triangles, %d vertices" % [tris, verts])
+
+	# Which way the top surface faces. Getting this wrong is not a subtle bug and
+	# it is not a visible one either: a terrain whose normals point down is lit
+	# by the *lower* hemisphere of the sky — the void colour — so it renders
+	# pure black while every prop standing on it lights normally, and it looks
+	# for all the world like a fog problem.
+	var terrain := (root.get_child(0) as Node3D).get_node("Terrain") as MeshInstance3D
+	for surface in terrain.mesh.get_surface_count():
+		var arrays := terrain.mesh.surface_get_arrays(surface)
+		var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var up := 0
+		for i in normals.size():
+			if normals[i].y > 0.0:
+				up += 1
+		if normals.size() == 0:
+			continue
+		var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+		var mean := Color(0, 0, 0)
+		for c: Color in colours:
+			mean += c
+		if colours.size() > 0:
+			mean /= float(colours.size())
+		print("  surface %d: %d/%d normals up; v1 %v n %v; %d colours, mean %s" % [
+			surface, up, normals.size(), points[1], normals[1], colours.size(),
+			mean.to_html(false)])
+		var mat := terrain.mesh.surface_get_material(surface) as StandardMaterial3D
+		print("           material albedo %s vertex_color_as_albedo=%s format=%d" % [
+			mat.albedo_color.to_html(false), mat.vertex_color_use_as_albedo,
+			terrain.mesh.surface_get_format(surface)])
 	root.free()
