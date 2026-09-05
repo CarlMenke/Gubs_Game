@@ -48,6 +48,16 @@ const MOUSE_BUTTON_NAMES := {
 	MOUSE_BUTTON_WHEEL_DOWN: "Wheel Down",
 }
 
+## The same buttons for a key cap sixty pixels wide. "Left Mouse" spills out of
+## an ability slot and "LMB" is what everyone calls it anyway.
+const MOUSE_BUTTON_CAPS := {
+	MOUSE_BUTTON_LEFT: "LMB",
+	MOUSE_BUTTON_RIGHT: "RMB",
+	MOUSE_BUTTON_MIDDLE: "MMB",
+	MOUSE_BUTTON_WHEEL_UP: "WH+",
+	MOUSE_BUTTON_WHEEL_DOWN: "WH-",
+}
+
 @onready var _sections: VBoxContainer = %Sections
 @onready var _done: Button = %DoneButton
 @onready var _reset: Button = %ResetButton
@@ -306,7 +316,7 @@ static func describe_action(action: String) -> String:
 ## The shortest label for one binding. Keys are reported by *physical* code, the
 ## way the input map stores them, so a WASD binding still says W on a keyboard
 ## whose layout would otherwise make it Z.
-static func describe_event(event: InputEvent) -> String:
+static func describe_event(event: InputEvent, short: bool = false) -> String:
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		var code := key.physical_keycode if key.physical_keycode != 0 else key.keycode
@@ -314,18 +324,20 @@ static func describe_event(event: InputEvent) -> String:
 			DisplayServer.keyboard_get_keycode_from_physical(code))
 	if event is InputEventMouseButton:
 		var button := (event as InputEventMouseButton).button_index
-		return MOUSE_BUTTON_NAMES.get(button, "Mouse %d" % button)
+		var table: Dictionary = MOUSE_BUTTON_CAPS if short else MOUSE_BUTTON_NAMES
+		return table.get(button, "Mouse %d" % button)
 	if event is InputEventJoypadButton:
 		return "Pad %d" % (event as InputEventJoypadButton).button_index
 	return ""
 
 
-## The first binding only, for a HUD key cap where there is room for one glyph.
+## The first binding only, abbreviated, for a HUD key cap where there is room
+## for about three characters.
 static func primary_key(action: String) -> String:
 	if not InputMap.has_action(action):
 		return "?"
 	for event: InputEvent in InputMap.action_get_events(action):
-		var text := describe_event(event)
+		var text := describe_event(event, true)
 		if not text.is_empty():
 			return text
 	return "?"

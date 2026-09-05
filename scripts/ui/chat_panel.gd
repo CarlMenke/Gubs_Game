@@ -40,6 +40,7 @@ func _ready() -> void:
 		theme_type_variation = &"HudPanel"
 		set_input_visible(false)
 	_hint.text = "%s to chat" % SettingsPanel.primary_key("chat")
+	_update_compact_skin()
 
 
 # ------------------------------------------------------------------ writing ---
@@ -64,6 +65,7 @@ func _append(bbcode: String) -> void:
 		_log.append_text("\n")
 	_log.append_text(bbcode)
 	_lines += 1
+	_update_compact_skin()
 	if _lines > MAX_LINES:
 		# `RichTextLabel` can only drop whole lines from the front, which is
 		# exactly the granularity wanted here.
@@ -98,6 +100,7 @@ func _on_submitted(text: String) -> void:
 func set_input_visible(shown: bool) -> void:
 	_input.visible = shown
 	_hint.visible = compact and not shown
+	_update_compact_skin()
 	if shown:
 		_input.grab_focus()
 	else:
@@ -106,6 +109,19 @@ func set_input_visible(shown: bool) -> void:
 
 func is_typing() -> bool:
 	return _input.visible and _input.has_focus()
+
+
+## In-match, an empty chat box is a black rectangle in the corner of a game
+## nobody has spoken in yet. The panel earns its background only once it has
+## something in it, or once someone starts typing.
+func _update_compact_skin() -> void:
+	if not compact:
+		return
+	var earned := _lines > 0 or _input.visible
+	if earned:
+		remove_theme_stylebox_override("panel")
+	else:
+		add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 
 
 func _gui_input(event: InputEvent) -> void:
