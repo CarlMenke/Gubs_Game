@@ -1,0 +1,94 @@
+[gd_scene load_steps=3 format=3 uid="uid://bgubsettings001"]
+
+[ext_resource type="Script" path="res://scripts/ui/settings_panel.gd" id="1_script"]
+[ext_resource type="Theme" path="res://resources/ui/gub_theme.tres" id="2_theme"]
+
+[node name="SettingsPanel" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = ExtResource("2_theme")
+script = ExtResource("1_script")
+
+[node name="Scrim" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_type_variation = &"ScrimPanel"
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Card" type="PanelContainer" parent="Center"]
+custom_minimum_size = Vector2(840, 680)
+layout_mode = 2
+theme_type_variation = &"CardPanel"
+
+[node name="Body" type="VBoxContainer" parent="Center/Card"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Header" type="HBoxContainer" parent="Center/Card/Body"]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="Center/Card/Body/Header"]
+layout_mode = 2
+theme_type_variation = &"HeadLabel"
+text = "SETTINGS"
+
+[node name="Spacer" type="Control" parent="Center/Card/Body/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="CloseButton" type="Button" parent="Center/Card/Body/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"GhostButton"
+text = "✕"
+
+[node name="Rule" type="HSeparator" parent="Center/Card/Body"]
+layout_mode = 2
+
+[node name="Scroll" type="ScrollContainer" parent="Center/Card/Body"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Sections" type="VBoxContainer" parent="Center/Card/Body/Scroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="Rule2" type="HSeparator" parent="Center/Card/Body"]
+layout_mode = 2
+
+[node name="Footer" type="HBoxContainer" parent="Center/Card/Body"]
+layout_mode = 2
+
+[node name="ResetButton" type="Button" parent="Center/Card/Body/Footer"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"GhostButton"
+text = "Reset to defaults"
+
+[node name="Spacer" type="Control" parent="Center/Card/Body/Footer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="DoneButton" type="Button" parent="Center/Card/Body/Footer"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"PrimaryButton"
+text = "Done"

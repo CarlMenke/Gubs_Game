@@ -1,0 +1,72 @@
+[gd_scene load_steps=2 format=3 uid="uid://gubresults00001"]
+
+[ext_resource type="Script" path="res://scripts/ui/results_screen.gd" id="1_script"]
+
+[node name="ResultsScreen" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="Scrim" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_type_variation = &"ScrimPanel"
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Stack" type="VBoxContainer" parent="Center"]
+custom_minimum_size = Vector2(780, 0)
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="Headline" type="Label" parent="Center/Stack"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"DisplayLabel"
+theme_override_font_sizes/font_size = 66
+text = "YOU WIN"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="Center/Stack"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"SmallLabel"
+text = "The kill limit was reached."
+horizontal_alignment = 1
+
+[node name="Gap" type="Control" parent="Center/Stack"]
+custom_minimum_size = Vector2(0, 28)
+layout_mode = 2
+
+[node name="Rows" type="VBoxContainer" parent="Center/Stack"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="Gap2" type="Control" parent="Center/Stack"]
+custom_minimum_size = Vector2(0, 30)
+layout_mode = 2
+
+[node name="Actions" type="HBoxContainer" parent="Center/Stack"]
+layout_mode = 2
+alignment = 1
+
+[node name="LobbyButton" type="Button" parent="Center/Stack/Actions"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"PrimaryButton"
+text = "BACK TO THE LOBBY"

@@ -1,0 +1,258 @@
+[gd_scene load_steps=10 format=3 uid="uid://bgublobby0001"]
+
+[ext_resource type="Script" path="res://scripts/ui/lobby.gd" id="1_lobby"]
+[ext_resource type="Script" path="res://scripts/ui/gub_backdrop.gd" id="2_backdrop"]
+[ext_resource type="Theme" path="res://resources/ui/gub_theme.tres" id="3_theme"]
+[ext_resource type="PackedScene" path="res://scenes/ui/match_settings.tscn" id="4_settings"]
+[ext_resource type="PackedScene" path="res://scenes/ui/chat_panel.tscn" id="5_chat"]
+
+[sub_resource type="Gradient" id="Gradient_top"]
+offsets = PackedFloat32Array(0, 1)
+colors = PackedColorArray(0.008, 0.011, 0.018, 0.92, 0.008, 0.011, 0.018, 0)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_top"]
+gradient = SubResource("Gradient_top")
+width = 4
+height = 256
+fill_from = Vector2(0, 0)
+fill_to = Vector2(0, 1)
+
+[sub_resource type="Gradient" id="Gradient_foot"]
+offsets = PackedFloat32Array(0, 1)
+colors = PackedColorArray(0.008, 0.011, 0.018, 0, 0.008, 0.011, 0.018, 0.94)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_foot"]
+gradient = SubResource("Gradient_foot")
+width = 4
+height = 256
+fill_from = Vector2(0, 0)
+fill_to = Vector2(0, 1)
+
+[node name="Lobby" type="Node3D"]
+script = ExtResource("1_lobby")
+
+[node name="Backdrop" type="Node3D" parent="."]
+unique_name_in_owner = true
+script = ExtResource("2_backdrop")
+formation = 1
+glade_seed = 771402
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="Root" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme = ExtResource("3_theme")
+
+[node name="TopScrim" type="TextureRect" parent="UI/Root"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 150.0
+grow_horizontal = 2
+mouse_filter = 2
+texture = SubResource("GradientTexture2D_top")
+expand_mode = 1
+stretch_mode = 0
+
+[node name="FootScrim" type="TextureRect" parent="UI/Root"]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -540.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+texture = SubResource("GradientTexture2D_foot")
+expand_mode = 1
+stretch_mode = 0
+
+[node name="Header" type="HBoxContainer" parent="UI/Root"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 56.0
+offset_top = 22.0
+offset_right = -56.0
+offset_bottom = 96.0
+grow_horizontal = 2
+theme_override_constants/separation = 22
+
+[node name="LeaveButton" type="Button" parent="UI/Root/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"GhostButton"
+text = "‹   LEAVE"
+
+[node name="Title" type="Label" parent="UI/Root/Header"]
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"HeadLabel"
+text = "LOBBY"
+
+[node name="Spacer" type="Control" parent="UI/Root/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="InviteChip" type="PanelContainer" parent="UI/Root/Header"]
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"CardPanel"
+
+[node name="Row" type="HBoxContainer" parent="UI/Root/Header/InviteChip"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="Text" type="VBoxContainer" parent="UI/Root/Header/InviteChip/Row"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="CodeCaption" type="Label" parent="UI/Root/Header/InviteChip/Row/Text"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"SectionLabel"
+text = "INVITE CODE"
+
+[node name="CodeLabel" type="Label" parent="UI/Root/Header/InviteChip/Row/Text"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"ReadoutLabel"
+theme_override_colors/font_color = Color(1, 0.84, 0.26, 1)
+theme_override_font_sizes/font_size = 26
+text = "XXXXX-XXXXX"
+
+[node name="CopyButton" type="Button" parent="UI/Root/Header/InviteChip/Row"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"GhostButton"
+text = "Copy"
+
+[node name="Body" type="HBoxContainer" parent="UI/Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 56.0
+offset_top = 404.0
+offset_right = -56.0
+offset_bottom = -96.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 18
+
+[node name="Players" type="PanelContainer" parent="UI/Root/Body"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"CardPanel"
+
+[node name="Body" type="VBoxContainer" parent="UI/Root/Body/Players"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Heading" type="HBoxContainer" parent="UI/Root/Body/Players/Body"]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="UI/Root/Body/Players/Body/Heading"]
+layout_mode = 2
+theme_type_variation = &"LeadLabel"
+text = "Gubs"
+
+[node name="Spacer" type="Control" parent="UI/Root/Body/Players/Body/Heading"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="PlayerCount" type="Label" parent="UI/Root/Body/Players/Body/Heading"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"AccentLabel"
+text = "1 / 8"
+
+[node name="Scroll" type="ScrollContainer" parent="UI/Root/Body/Players/Body"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="PlayerList" type="VBoxContainer" parent="UI/Root/Body/Players/Body/Scroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 3
+
+[node name="MatchSettings" parent="UI/Root/Body" instance=ExtResource("4_settings")]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 1.3
+
+[node name="Chat" parent="UI/Root/Body" instance=ExtResource("5_chat")]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Footer" type="HBoxContainer" parent="UI/Root"]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 56.0
+offset_top = -90.0
+offset_right = -56.0
+offset_bottom = -26.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_constants/separation = 18
+
+[node name="TeamRow" type="HBoxContainer" parent="UI/Root/Footer"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="TeamCaption" type="Label" parent="UI/Root/Footer/TeamRow"]
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"SectionLabel"
+text = "YOUR TEAM"
+
+[node name="TeamPicker" type="HBoxContainer" parent="UI/Root/Footer/TeamRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_constants/separation = 6
+
+[node name="Spacer" type="Control" parent="UI/Root/Footer"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="GateHint" type="Label" parent="UI/Root/Footer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"SmallLabel"
+text = ""
+
+[node name="ReadyButton" type="Button" parent="UI/Root/Footer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+toggle_mode = true
+theme_type_variation = &"PrimaryButton"
+text = "READY UP"
+
+[node name="StartButton" type="Button" parent="UI/Root/Footer"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"PrimaryButton"
+text = "START MATCH"
