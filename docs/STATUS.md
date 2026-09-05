@@ -23,8 +23,8 @@ The game can now be played end to end for the first time: `SceneFlow` points at
 
 ### What was checked after the merge
 
-`bash tools/smoke_test.sh` passes 6 checks. That gate predates both branches and
-touches none of their scenes, so each merged screen was also rendered directly:
+`bash tools/smoke_test.sh` passes 7 checks. Six of them predate both branches and
+touch none of their scenes, so each merged screen was also rendered directly:
 
 | checked | how |
 |---|---|
@@ -34,11 +34,38 @@ touches none of their scenes, so each merged screen was also rendered directly:
 
 The arena builds in ~2.1 s: 1399 props (~716k triangles), 8 spawns, 15 torches.
 
-**None of it is a substitute for playing it.** Every screen above was rendered
-in isolation with a fake roster; nothing has walked the real path from the menu
-through a lobby into a match and out to the results screen.
+**None of it was a substitute for playing it**, and the two bugs below are the
+proof: every screen in that table rendered perfectly while the game itself was
+unplayable. Each was rendered in isolation, on a testbed that stands the arena
+up directly, and both bugs lived in the wiring between them — which is the one
+thing rendering a screen cannot check.
 
-### One thing the merge itself broke, and the fix
+A human still has not played it end to end. `tools/cursor_flow.tscn` now walks
+menu → match automatically, but nothing has gone through a lobby with two
+clients and out to the results screen.
+
+### Two things the merge left broken, and the fixes
+
+**The arena never instanced the HUD.** `arena.tscn` was a one-node scene and
+nothing anywhere added `hud.tscn` to it, so a real match had no crosshair, no
+clock, no kill feed, no scoreboard, no pause menu and no results screen — all of
+which existed, all of which had been looked at in `tools/hud_range.tscn`, and
+none of which a player could reach. `hud.gd`'s own header had documented the
+line that was missing since the day it was written. The arena instances it now.
+
+**Entering a match did not capture the mouse.** The menu and the lobby each take
+a named cursor hold in `_ready` and neither has anywhere to give it back;
+`SceneFlow` only resumed capture when the set of holds emptied, so they piled up
+and the match ran with a free cursor. Mouse-look and throwing are both gated on
+`SceneFlow.cursor_is_free()`, so this was not a cosmetic bug — the game was
+unplayable. A hold is now dropped with the scene that took it.
+
+Neither is a merge conflict. Both are the same shape: two halves that compile,
+that were each verified on their own, and that no one had ever asked to work
+together. `tools/cursor_flow.tscn` now covers the second one, and it is the only
+check in the suite that walks the path a player walks.
+
+### The ambient loops, which had the same shape
 
 The two branches disagreed about where the ambient loops live. `Ambience.LOOPS`
 named `res://assets/audio/ambience/forest_night.ogg` and `wind_high.ogg` — files
@@ -66,7 +93,7 @@ compile fine and quietly agree on nothing.
 
 ## The state of the game
 
-`main` is green: `bash tools/smoke_test.sh` passes 6 checks.
+`main` is green: `bash tools/smoke_test.sh` passes 7 checks.
 
 Phases 0 through 5 are complete, bar one spawn point (4.10) and the UI half of
 disconnect handling (1.8). Phase 6 is complete except the spectator camera (6.5)
@@ -156,6 +183,7 @@ one-line local patch (`from __future__ import annotations` at the top of its
 | `match_rules.tscn` | 60 assertions across 9 scoring scenarios, headless |
 | `invite_codes.tscn` | 2619 assertions over 1296 endpoints, headless |
 | `ragdoll_stability.tscn` | throws a corpse with a real spear, requires it to settle |
+| `cursor_flow.tscn` | menu → match through the real `SceneFlow`; asserts the mouse is captured |
 | `sandbox.tscn` | playable flat testbed for movement |
 | `inspect_scene.gd` | dump a scene's node tree, animations, bones, tri counts |
 | `preview_assets/anim/grip/ragdoll/sky` | look at one thing in isolation |

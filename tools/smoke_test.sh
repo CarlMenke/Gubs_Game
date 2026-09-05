@@ -127,7 +127,7 @@ check() {
     local name="$1" expect="$2"; shift 2
     local log="$LOG_DIR/${name// /_}.log"
     checks=$((checks + 1))
-    printf '  %-28s ' "$name"
+    printf '  %-32s ' "$name"
 
     if ! "$@" >"$log" 2>&1; then
         echo "FAIL (Godot exited non-zero)"
@@ -187,6 +187,12 @@ check "lure catches" "combat_range: lure caught 1" \
 check "mushroom deploys" "snapshot: wrote" \
     "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
     res://tools/combat_range.tscn "$GODOT_LOG_DIR/mushroom.png" 40 mushroom
+# Walks the menu into a real match and asks Input.mouse_mode what happened. It
+# grabs the physical mouse for about a second on the way through, which is the
+# only way to prove the thing it proves: every other check here stands the arena
+# up directly, and this bug only existed on the path a player takes.
+check "mouse capture entering a match" "cursor_flow: PASS" \
+    "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 res://tools/cursor_flow.tscn
 echo
 
 echo "smoke: $checks checks, $failures failures"

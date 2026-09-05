@@ -1,11 +1,19 @@
-[gd_scene load_steps=2 format=3 uid="uid://bgubarena0001"]
+[gd_scene load_steps=3 format=3 uid="uid://bgubarena0001"]
 
-; Whisperbloom Hollow. Deliberately a one-node scene: everything in the map is
-; generated at load from `Net.config.map_seed` (D-007), so there is nothing here
-; to hand-edit and nothing that can drift out of sync between clients. See
+; Whisperbloom Hollow. The map itself is deliberately unauthored: everything in
+; it is generated at load from `Net.config.map_seed` (D-007), so there is nothing
+; here to hand-edit and nothing that can drift out of sync between clients. See
 ; `scripts/world/arena.gd` for the build order.
+;
+; The HUD is the one exception, and it has to be here: it is what draws the
+; crosshair, the clock, the kill feed, the scoreboard, the pause menu and the
+; results screen over a running match, and it is what takes the mouse. It holds
+; no reference to anything in the arena — see the header of `scripts/ui/hud.gd`.
 
 [ext_resource type="Script" path="res://scripts/world/arena.gd" id="1_arena"]
+[ext_resource type="PackedScene" uid="uid://gubhud00000001" path="res://scenes/ui/hud.tscn" id="2_hud"]
 
 [node name="Arena" type="Node3D"]
 script = ExtResource("1_arena")
+
+[node name="HUD" parent="." instance=ExtResource("2_hud")]
