@@ -24,22 +24,33 @@ extends RefCounted
 ##             anatomical proportions would suggest.
 ##   mass    — kilograms. The head and torso carry most of it, which is what
 ##             makes the body flop rather than cartwheel.
-##   swing   — cone half-angle, degrees. How far the joint can bend.
-##   twist   — how far it can rotate about its own axis.
+##   swing   — cone half-angle, degrees: how far this bone may fold away from
+##             the one above it. An elbow and a knee need a *lot* of this.
+##   twist   — how far it may rotate about its own length.
+##
+## These spans have to cover the whole range a falling body actually reaches,
+## because a cone-twist joint that is driven past its limit does not clamp —
+## Godot's limit solver pushes back hard enough to add energy, and a chain of
+## thirteen of them turns that into an explosion within a few ticks. The corpse
+## survived every drop test until it first touched the ground, at which point
+## the legs folded past the old 44-degree knee and the whole ragdoll detonated.
+## See D-013. When in doubt, open a joint up: a corpse that bends too freely
+## looks rubbery, which is the intended look anyway, whereas one that bends too
+## little does not look stiff — it explodes.
 const SEGMENTS: Array[Dictionary] = [
-	{"bone": "spine",       "tip": "spine.002", "girth": 0.52, "mass": 9.0, "swing": 30.0, "twist": 16.0},
-	{"bone": "spine.002",   "tip": "spine.004", "girth": 0.58, "mass": 8.0, "swing": 26.0, "twist": 14.0},
-	{"bone": "spine.004",   "tip": "spine.006", "girth": 0.50, "mass": 5.0, "swing": 38.0, "twist": 26.0},
-	{"bone": "upper_arm.L", "tip": "forearm.L", "girth": 0.26, "mass": 1.3, "swing": 72.0, "twist": 34.0},
-	{"bone": "forearm.L",   "tip": "hand.L",    "girth": 0.22, "mass": 0.9, "swing": 58.0, "twist": 22.0},
-	{"bone": "upper_arm.R", "tip": "forearm.R", "girth": 0.26, "mass": 1.3, "swing": 72.0, "twist": 34.0},
-	{"bone": "forearm.R",   "tip": "hand.R",    "girth": 0.22, "mass": 0.9, "swing": 58.0, "twist": 22.0},
-	{"bone": "thigh.L",     "tip": "shin.L",    "girth": 0.28, "mass": 2.6, "swing": 54.0, "twist": 20.0},
-	{"bone": "shin.L",      "tip": "foot.L",    "girth": 0.24, "mass": 1.8, "swing": 44.0, "twist": 14.0},
-	{"bone": "foot.L",      "tip": "toe.L",     "girth": 0.34, "mass": 0.8, "swing": 30.0, "twist": 12.0},
-	{"bone": "thigh.R",     "tip": "shin.R",    "girth": 0.28, "mass": 2.6, "swing": 54.0, "twist": 20.0},
-	{"bone": "shin.R",      "tip": "foot.R",    "girth": 0.24, "mass": 1.8, "swing": 44.0, "twist": 14.0},
-	{"bone": "foot.R",      "tip": "toe.R",     "girth": 0.34, "mass": 0.8, "swing": 30.0, "twist": 12.0},
+	{"bone": "spine",       "tip": "spine.002", "girth": 0.52, "mass": 9.0, "swing": 45.0, "twist": 30.0},
+	{"bone": "spine.002",   "tip": "spine.004", "girth": 0.58, "mass": 8.0, "swing": 40.0, "twist": 26.0},
+	{"bone": "spine.004",   "tip": "spine.006", "girth": 0.50, "mass": 5.0, "swing": 50.0, "twist": 40.0},
+	{"bone": "upper_arm.L", "tip": "forearm.L", "girth": 0.26, "mass": 1.3, "swing": 95.0, "twist": 60.0},
+	{"bone": "forearm.L",   "tip": "hand.L",    "girth": 0.22, "mass": 0.9, "swing": 105.0, "twist": 35.0},
+	{"bone": "upper_arm.R", "tip": "forearm.R", "girth": 0.26, "mass": 1.3, "swing": 95.0, "twist": 60.0},
+	{"bone": "forearm.R",   "tip": "hand.R",    "girth": 0.22, "mass": 0.9, "swing": 105.0, "twist": 35.0},
+	{"bone": "thigh.L",     "tip": "shin.L",    "girth": 0.28, "mass": 2.6, "swing": 85.0, "twist": 40.0},
+	{"bone": "shin.L",      "tip": "foot.L",    "girth": 0.24, "mass": 1.8, "swing": 105.0, "twist": 25.0},
+	{"bone": "foot.L",      "tip": "toe.L",     "girth": 0.34, "mass": 0.8, "swing": 50.0, "twist": 25.0},
+	{"bone": "thigh.R",     "tip": "shin.R",    "girth": 0.28, "mass": 2.6, "swing": 85.0, "twist": 40.0},
+	{"bone": "shin.R",      "tip": "foot.R",    "girth": 0.24, "mass": 1.8, "swing": 105.0, "twist": 25.0},
+	{"bone": "foot.R",      "tip": "toe.R",     "girth": 0.34, "mass": 0.8, "swing": 50.0, "twist": 25.0},
 ]
 
 const LAYER_WORLD := 1
@@ -109,7 +120,17 @@ static func _make_bone(skeleton: Skeleton3D, bone: int, tip: int,
 	physical.body_offset = rest.affine_inverse() * placement
 	# The joint belongs at the *head* of the bone — the elbow, not the middle of
 	# the forearm — which in body-local space is half a length down the Y axis.
-	physical.joint_offset = Transform3D(Basis(), Vector3(0.0, -length * 0.5, 0.0))
+	#
+	# The basis matters as much as the origin. A cone-twist measures swing and
+	# twist about its frame's local **X**, but the capsule (and so the bone) runs
+	# along the body's local **Y**. Left as identity, the cone opened sideways
+	# across the limb: "swing" then limited rotation about the bone and "twist"
+	# limited the actual bend, so a knee folding on impact was read as twist and
+	# checked against a 14-degree limit. Rotating the frame 90 degrees about Z
+	# maps its X onto the body's Y, which points the cone down the limb where it
+	# belongs.
+	physical.joint_offset = Transform3D(
+		Basis(Vector3(0.0, 0.0, 1.0), PI * 0.5), Vector3(0.0, -length * 0.5, 0.0))
 	physical.joint_type = PhysicalBone3D.JOINT_TYPE_CONE
 	physical.set("joint_constraints/swing_span", segment["swing"])
 	physical.set("joint_constraints/twist_span", segment["twist"])
