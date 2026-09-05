@@ -475,3 +475,72 @@ the roster entry and nothing told `MatchState` to clear up the body. It stayed
 targetable and, worse, kept counting toward "last Gub standing", so a lives match
 could reach a state where it could never end. `Net.player_left` is broadcast now,
 and `MatchState` frees the Gub and re-runs the win check.
+
+## D-022 — Two processes, one socket: what offline mode could never show
+D-011 argued that `Net.start_offline()` is the right shape for a testbed, and it
+was: peer 1, `is_server()` true, no socket, and every `is_host` branch and
+authority check downstream takes the shipping path. That argument has one hole it
+was always honest about — `rpc()` reaches nobody. Only the "call locally" half of
+the codebase's rpc-then-call-locally pattern had ever run, and **nothing had ever
+been serialised**.
+
+`tools/net_loopback.tscn` and `tools/net_test.sh` close it on one machine: two
+real Godot processes, a real ENet socket on 127.0.0.1, and eight stages —
+connect, roster, name collision, config, chat both ways, match start, a kill, and
+a disconnect. Both peers load the real arena and build the same island from the
+replicated seed, so the kill is asserted end to end: the host calls
+`report_kill`, the client's `player_killed` fires, and both sides' `stats` agree.
+
+It is deliberately **not** in `smoke_test.sh`. It binds UDP 27015, and a firewall
+prompt would hang an automated gate with no way to tell that apart from a hang in
+the game.
+
+Three bugs fell out of the first run, and the interesting thing about all three
+is *why* offline mode hid them:
+
+- **The host RPC'd itself.** `send_chat`, `set_ready`, `set_team` and
+  `set_name_local` all sent to peer 1 and then called locally, and on the host
+  peer 1 is itself. Godot refuses (`RPC on yourself is not allowed by selected
+  mode`) once per chat line for the whole session. Nothing was lost — the local
+  call did the work — so the only symptom was a filling log.
+  `OfflineMultiplayerPeer` swallows `rpc_id` in silence, so no testbed could see
+  it. The fix is to send only when we are *not* the host.
+- **A spawned Gub raced its own synchronizer**, and chasing it turned up a
+  second, larger bug behind it. `_create_gub` is reliable; the
+  `MultiplayerSynchronizer` pushes position as unreliable from the moment the
+  node enters the tree. Different ENet channels, no ordering between them, so an
+  update arrives before the node it addresses exists. Offline has no channels to
+  race.
+
+  The first attempt — hold the owner's synchronizer quiet for a third of a
+  second — barely helped, and the reason why was the real finding: **the host
+  began the match as soon as its own island had built, while other peers were
+  still building theirs.** The island is generated and blocks the main thread for
+  two to six seconds per machine, so the host was spawning Gubs and replicating
+  them into peers that had no arena yet. Worse than the noise, `_create_gub` is
+  sent once and never re-sent, so a peer still building when it arrived could
+  miss a spawn permanently and spend the match in an empty arena including its
+  own body. That never actually bit, because the RPC queues behind the blocking
+  build rather than being dropped — but that was luck, not design.
+
+  So `register_arena` now reports up to the host, and the host waits for every
+  peer before starting (with `ARENA_READY_TIMEOUT`, so one crashed peer cannot
+  hang a lobby for ever). Nobody plays until everybody can. With the receiver
+  guaranteed to have an arena, the quiet window only has to outlast channel
+  reordering, which is what it is sized for now.
+
+  `MultiplayerSpawner` remains Godot's real answer — it puts the spawn and the
+  state on one ordered path — and adopting it is a rewrite of `_create_gub` worth
+  doing before this ships to strangers.
+- **`MatchState` asked a peer that was already gone**, exactly as `Gub.is_local`
+  used to. Everything there goes through `Net.local_id()` now, which guards it.
+
+Two paths worked correctly the first time over a real socket and are worth
+recording as such: the connect timeout (a client dialling a dead host fails
+cleanly at eight seconds with the right message) and the bind-failure branch
+(`Could not open port 27015` when something already holds it).
+
+What this still cannot tell anyone: latency. Loopback has none, so nothing here
+says whether a client-authoritative Gub *feels* right on a real link, or whether
+the lure's client-side pull reads as fair to the person being pulled. That needs
+two machines and remains the largest untested thing in the project.

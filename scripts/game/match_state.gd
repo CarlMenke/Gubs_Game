@@ -12,6 +12,12 @@ extends Node
 ## do own is their own Gub's movement (docs/DECISIONS.md D-004), which is why
 ## respawning teleports via an RPC to the owner rather than by the host setting
 ## a position it does not control.
+##
+## Everything here asks `Net.local_id()` rather than `multiplayer.get_unique_id()`
+## directly. They are the same answer while a session exists, and only the first
+## has one when it does not: leaving nulls the peer immediately while `SceneFlow`
+## fades for FADE_OUT seconds, and the HUD reaches `local_gub()` three times a
+## frame throughout. `Gub.is_local()` carries the same guard for the same reason.
 
 signal phase_changed(phase: Phase)
 signal scores_changed()
@@ -30,6 +36,11 @@ const VOID_HEIGHT := -45.0
 ## A fall that ends in the void still counts as a death, but the kill is only
 ## credited to another player if they were the last to touch you this recently.
 const ASSIST_WINDOW := 4.0
+## How long the host will wait for every peer to finish building the island
+## before starting the match without them. The build is 2-6 seconds and a peer
+## that never reports is a peer that has crashed or hung; the match should not
+## wait on it for ever. See `register_arena`.
+const ARENA_READY_TIMEOUT := 25.0
 
 var phase: Phase = Phase.IDLE
 var time_left: float = 0.0
@@ -45,6 +56,9 @@ var _spawn_points: Array[Transform3D] = []
 var _spawn_cursor: int = 0
 var _phase_timer: float = 0.0
 var _finished: bool = false
+## peer_id -> true once that peer has built its island and can be spawned into.
+var _arena_ready: Dictionary = {}
+var _arena_ready_deadline: float = 0.0
 
 
 func _ready() -> void:
@@ -73,8 +87,64 @@ func register_arena(players_root: Node, spawn_points: Array[Transform3D]) -> voi
 	rng.seed = config().map_seed
 	_spawn_cursor = rng.randi_range(0, maxi(1, _spawn_points.size()) - 1)
 
+	# Do not start the match until every peer has an arena to start it in.
+	#
+	# The island is *generated*, and that blocks the main thread for two to six
+	# seconds on each machine independently. The host used to begin the warmup
+	# the moment its own build finished, which meant it spawned Gubs and started
+	# replicating their positions while other peers were still building — so the
+	# unreliable position updates arrived at a client that had not yet processed
+	# the reliable RPC creating the node they address, and every client logged
+	# `Node not found: "Arena/Players/Gub_N/Sync"` on every match start.
+	#
+	# Worse than the noise: `_create_gub` is sent once and never re-sent, so a
+	# peer still building when it arrives could miss a spawn permanently and
+	# spend the match in an empty arena, including its own body. That never bit
+	# because the RPC queues behind the blocking build rather than being dropped
+	# — but it was luck, not design.
+	#
+	# Waiting is also just correct. Nobody can play until everybody can play.
 	if Net.is_host:
-		_begin_warmup()
+		_arena_ready[Net.local_id()] = true
+		_arena_ready_deadline = _now() + ARENA_READY_TIMEOUT
+		_try_begin_warmup()
+	else:
+		_report_arena_ready.rpc_id(1)
+
+
+## A client telling the host its island is built and it can be spawned into.
+@rpc("any_peer", "call_remote", "reliable")
+func _report_arena_ready() -> void:
+	if not Net.is_host:
+		return
+	var peer_id := multiplayer.get_remote_sender_id()
+	if peer_id == 0:
+		peer_id = Net.local_id()
+	_arena_ready[peer_id] = true
+	_try_begin_warmup()
+
+
+## Begin once everyone is ready — or once we have waited long enough that a peer
+## which has not reported is better treated as gone than as slow.
+func _try_begin_warmup() -> void:
+	if phase != Phase.IDLE or _players_root == null:
+		return
+	# Only peers we genuinely have a connection to. `Net.players` is the roster,
+	# and the roster is not the same thing: `tools/combat_range.gd`,
+	# `tools/hud_range.gd` and `tools/ui_range.gd` all write stand-in entries
+	# straight into it for peers that do not exist and never will (D-011), and an
+	# offline session has no remote peers at all. Waiting on `Net.peer_ids()`
+	# would stall every one of those harnesses for the full timeout.
+	var waiting: Array[int] = []
+	for peer_id: int in multiplayer.get_peers():
+		if not _arena_ready.has(peer_id):
+			waiting.append(peer_id)
+	if not waiting.is_empty() and _now() < _arena_ready_deadline:
+		return
+	if not waiting.is_empty():
+		push_warning("MatchState: starting without %d peer(s) whose arena never reported"
+			% waiting.size())
+	_begin_warmup()
 
 
 func _on_left_lobby(_reason: int, _message: String) -> void:
@@ -94,6 +164,7 @@ func _on_player_left(peer_id: int) -> void:
 		gub.queue_free()
 	gubs.erase(peer_id)
 	stats.erase(peer_id)
+	_arena_ready.erase(peer_id)
 	scores_changed.emit()
 	if Net.is_host and phase == Phase.PLAYING:
 		_push_scores()
@@ -106,6 +177,8 @@ func reset() -> void:
 			gub.queue_free()
 	gubs.clear()
 	stats.clear()
+	_arena_ready.clear()
+	_arena_ready_deadline = 0.0
 	_finished = false
 	time_left = 0.0
 	_set_phase(Phase.IDLE)
@@ -156,7 +229,14 @@ func _sync_phase(next: Phase, phase_seconds: float, clock: float) -> void:
 
 
 func _process(delta: float) -> void:
-	if not Net.is_host or phase == Phase.IDLE:
+	if not Net.is_host:
+		return
+	if phase == Phase.IDLE:
+		# Only reachable while waiting on other peers' arenas; this is what lets
+		# `ARENA_READY_TIMEOUT` actually expire rather than waiting for ever on a
+		# peer that has crashed mid-build.
+		if _arena_ready_deadline > 0.0:
+			_try_begin_warmup()
 		return
 
 	if phase == Phase.WARMUP:
@@ -274,6 +354,7 @@ func _create_gub(peer_id: int, spawn: Transform3D) -> void:
 	# the last Gub spawned steals the viewport and the player spends the match
 	# looking out of somebody else's head.
 	gub.set_multiplayer_authority(peer_id)
+
 	_players_root.add_child(gub)
 	# `revive_at` rather than assigning the transform: it also seeds the
 	# replicated fields. Without that, every other peer's copy starts with
@@ -288,7 +369,7 @@ func _create_gub(peer_id: int, spawn: Transform3D) -> void:
 		plate.set_team(gub.team if config().mode == MatchConfig.Mode.TEAMS
 			else MatchConfig.TEAM_NONE)
 		# You do not need a label telling you your own name.
-		plate.visible = peer_id != multiplayer.get_unique_id()
+		plate.visible = peer_id != Net.local_id()
 
 	gubs[peer_id] = gub
 	if not stats.has(peer_id):
@@ -317,7 +398,7 @@ func _do_respawn(peer_id: int, spawn: Transform3D) -> void:
 	var combat := gub.get_node_or_null("Combat") as GubCombat
 	if combat != null:
 		combat.reset()
-	if peer_id == multiplayer.get_unique_id():
+	if peer_id == Net.local_id():
 		AudioDirector.play_2d(AudioDirector.RESPAWN)
 		local_respawn.emit()
 
@@ -380,10 +461,10 @@ func _apply_death(victim_id: int, killer_id: int, cause: Gub.Cause,
 		AudioDirector.play_3d_varied(AudioDirector.DEATH, victim.global_position)
 
 	player_killed.emit(victim_id, killer_id, cause)
-	if victim_id == multiplayer.get_unique_id():
+	if victim_id == Net.local_id():
 		local_death.emit(config().respawn_delay)
 		_shake(victim, 1.4)
-	elif killer_id == multiplayer.get_unique_id():
+	elif killer_id == Net.local_id():
 		# The hitmarker is the only confirmation a thrower gets that a spear
 		# landed: the victim may be sixty metres away and behind a tree, and the
 		# spear itself is gone. It is deliberately 2D — it is feedback about
@@ -543,5 +624,5 @@ func living_gubs(exclude_id: int = 0) -> Array[Gub]:
 
 ## The Gub this client is driving, or null while dead or spectating.
 func local_gub() -> Gub:
-	var gub: Gub = gubs.get(multiplayer.get_unique_id())
+	var gub: Gub = gubs.get(Net.local_id())
 	return gub if is_instance_valid(gub) else null

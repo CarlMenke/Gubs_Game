@@ -379,11 +379,23 @@ func _reject(reason: Leave, message: String) -> void:
 
 
 # ------------------------------------------------------- roster mutations ---
+#
+# Each of these is "ask the host to change my row". The host *is* the host, so it
+# calls the handler directly and only a client sends. Written the other way round
+# — send unconditionally, then call locally if we are the host — the host asks
+# peer 1 to do something, and peer 1 is itself: Godot refuses with `RPC on
+# yourself is not allowed by selected mode`, once per chat line, ready toggle,
+# team pick and rename, for the whole session. Nothing was lost, because the
+# local call did the work, but the log filled up.
+#
+# `OfflineMultiplayerPeer` swallows `rpc_id` silently, so no testbed could see
+# this. It took two real processes to find (`tools/net_test.sh`).
 
 func set_ready(value: bool) -> void:
-	_request_ready.rpc_id(1, value)
 	if is_host:
 		_request_ready(value)
+	else:
+		_request_ready.rpc_id(1, value)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -401,9 +413,10 @@ func _request_ready(value: bool) -> void:
 
 
 func set_team(team: int) -> void:
-	_request_team.rpc_id(1, team)
 	if is_host:
 		_request_team(team)
+	else:
+		_request_team.rpc_id(1, team)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -424,9 +437,10 @@ func set_name_local(new_name: String) -> void:
 	Settings.set_value("player_name", new_name)
 	if not in_session:
 		return
-	_request_rename.rpc_id(1, new_name)
 	if is_host:
 		_request_rename(new_name)
+	else:
+		_request_rename.rpc_id(1, new_name)
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -465,9 +479,10 @@ func send_chat(text: String) -> void:
 	var clean := text.strip_edges().substr(0, CHAT_MAX_LENGTH)
 	if clean.is_empty():
 		return
-	_submit_chat.rpc_id(1, clean)
 	if is_host:
 		_submit_chat(clean)
+	else:
+		_submit_chat.rpc_id(1, clean)
 
 
 @rpc("any_peer", "call_remote", "reliable")
