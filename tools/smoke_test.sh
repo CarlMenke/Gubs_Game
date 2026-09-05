@@ -18,7 +18,10 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOG_DIR="${TMPDIR:-/tmp}/gub_smoke"
+# Beside the repo rather than in /tmp: under WSL the Godot we run is a Windows
+# binary, and /tmp is inside the Linux filesystem, reachable from Windows only
+# as a \wsl.localhost UNC path. `.smoke/` is gitignored.
+LOG_DIR="$ROOT/.smoke"
 
 failures=0
 checks=0
@@ -94,6 +97,29 @@ fi
 
 mkdir -p "$LOG_DIR"
 
+# Under WSL the binary found above is a *Windows* executable, and a Windows
+# executable cannot read a Linux path: `--path /mnt/c/...` gets you "Invalid
+# project path specified" and nothing else. Git Bash does this translation for
+# you on the way into a native binary; WSL deliberately does not. Translate the
+# two paths that reach Godot, and only those — everything the shell itself opens
+# stays POSIX.
+GODOT_ROOT="$ROOT"
+GODOT_LOG_DIR="$LOG_DIR"
+if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+    case "$GODOT" in
+        *.exe)
+            if ! command -v wslpath >/dev/null 2>&1; then
+                echo "smoke: this is WSL and Godot is a Windows binary, but wslpath is"
+                echo "       missing, so the project path cannot be translated."
+                echo "       Run this from Git Bash or PowerShell instead."
+                exit 2
+            fi
+            GODOT_ROOT="$(wslpath -w "$ROOT")"
+            GODOT_LOG_DIR="$(wslpath -w "$LOG_DIR")"
+            ;;
+    esac
+fi
+
 # Run a Godot invocation and require `expect` to appear in its output. Also
 # fails on any SCRIPT ERROR, which is how a broken script announces itself —
 # Godot carries on running afterwards, so a silent exit code proves nothing.
@@ -128,7 +154,7 @@ echo "smoke: $ROOT"
 echo
 
 echo "importing assets"
-if ! "$GODOT" --headless --path "$ROOT" --import >"$LOG_DIR/import.log" 2>&1; then
+if ! "$GODOT" --headless --path "$GODOT_ROOT" --import >"$LOG_DIR/import.log" 2>&1; then
     echo "  FAIL — import did not complete"
     tail -20 "$LOG_DIR/import.log" | sed 's/^/      /'
     exit 1
@@ -138,29 +164,29 @@ echo
 
 echo "headless checks"
 check "invite codes" "invite_codes: PASS" \
-    "$GODOT" --headless --path "$ROOT" tools/invite_codes.tscn
+    "$GODOT" --headless --path "$GODOT_ROOT" tools/invite_codes.tscn
 check "match rules" "match_rules: PASS" \
-    "$GODOT" --headless --path "$ROOT" tools/match_rules.tscn
+    "$GODOT" --headless --path "$GODOT_ROOT" tools/match_rules.tscn
 echo
 
 # These need a real window: Godot's headless driver uses the dummy rasteriser
 # and renders nothing, and the physics still has to run for a corpse to fall.
 echo "rendered checks (a window will flash)"
 check "ragdoll survives landing" "ragdoll_stability: PASS" \
-    "$GODOT" --path "$ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
-    res://tools/ragdoll_stability.tscn "$LOG_DIR/ragdoll.png" 160
+    "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
+    res://tools/ragdoll_stability.tscn "$GODOT_LOG_DIR/ragdoll.png" 160
 # Match on the victim, not the killer. The killer's name is the local player
 # setting, which is persisted in Godot's user-data directory (shared by every
 # checkout of this project) and is whatever anyone last typed into a name box.
 check "spear kills" "killed Dummy 1" \
-    "$GODOT" --path "$ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
-    res://tools/combat_range.tscn "$LOG_DIR/hit.png" 70 hit
+    "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
+    res://tools/combat_range.tscn "$GODOT_LOG_DIR/hit.png" 70 hit
 check "lure catches" "combat_range: lure caught 1" \
-    "$GODOT" --path "$ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
-    res://tools/combat_range.tscn "$LOG_DIR/lure.png" 132 lure
+    "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
+    res://tools/combat_range.tscn "$GODOT_LOG_DIR/lure.png" 132 lure
 check "mushroom deploys" "snapshot: wrote" \
-    "$GODOT" --path "$ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
-    res://tools/combat_range.tscn "$LOG_DIR/mushroom.png" 40 mushroom
+    "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
+    res://tools/combat_range.tscn "$GODOT_LOG_DIR/mushroom.png" 40 mushroom
 echo
 
 echo "smoke: $checks checks, $failures failures"

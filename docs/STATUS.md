@@ -100,7 +100,10 @@ not the binary — which catches everyone once.
 `tools/smoke_test.sh` finds the binary itself — it searches `$GODOT`, then
 `PATH`, then Downloads under `$HOME`, `$USERPROFILE` and every Windows user
 profile it can see, because `$HOME` is not the Windows profile under every bash
-on Windows. For the other commands here, set it yourself:
+on Windows. It also runs under WSL, where it translates the project path with
+`wslpath` first: Git Bash converts POSIX paths on the way into a native binary
+and WSL does not, so an untranslated `/mnt/c/...` reaches Godot as a path it
+cannot read. For the other commands here, set it yourself:
 
 ```bash
 GODOT="$HOME/Downloads/Godot_v4.7.2-stable_win64.exe/Godot_v4.7.2-stable_win64_console.exe"

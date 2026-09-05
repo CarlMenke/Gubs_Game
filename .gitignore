@@ -42,3 +42,6 @@ assets/Stylized_Nature_MegaKitStandard/OBJ/
 assets/Stylized_Nature_MegaKitStandard/Textures/
 assets/source/Mushroom/base.obj
 desktop.ini
+
+# Smoke-test logs and frames
+.smoke/
