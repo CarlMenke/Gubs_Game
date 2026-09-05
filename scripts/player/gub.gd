@@ -161,6 +161,19 @@ func _equip_spear() -> void:
 
 
 func is_local() -> bool:
+	# `is_multiplayer_authority()` asks the peer for its own id, and there is a
+	# window every time a match ends where there is no peer to ask: leaving nulls
+	# `multiplayer.multiplayer_peer` immediately, and `SceneFlow` then fades for
+	# FADE_OUT seconds before the arena is freed. Every Gub still in the tree is
+	# processed through those frames — this one, its animator and its combat all
+	# ask — which is thirteen frames of engine errors on the way out of every
+	# match. `Net.local_id` already guards the same call the same way.
+	#
+	# Nothing is locally controlled in a session that has ended, so the honest
+	# answer is no: movement and input stop, and anything reading through
+	# `is_grounded`/`is_sliding` falls back to the last synced values.
+	if multiplayer.multiplayer_peer == null:
+		return false
 	return is_multiplayer_authority()
 
 

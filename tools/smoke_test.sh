@@ -141,6 +141,17 @@ check() {
         failures=$((failures + 1))
         return
     fi
+    # Always a bug, never noise, and it can surface in any check: something asked
+    # the multiplayer API for an id while no peer was assigned. Godot prints it
+    # and carries on, so it is invisible unless it is looked for. Checked here
+    # rather than in one test because the next place it appears will be a
+    # different one.
+    if grep -q "No multiplayer peer is assigned" "$log"; then
+        echo "FAIL (asked a multiplayer peer that is not there)"
+        grep -A 4 "No multiplayer peer is assigned" "$log" | sed 's/^/      /' | head -12
+        failures=$((failures + 1))
+        return
+    fi
     if ! grep -qF "$expect" "$log"; then
         echo "FAIL (expected: $expect)"
         sed 's/^/      /' "$log" | tail -20
@@ -194,6 +205,13 @@ check "mushroom deploys" "snapshot: wrote" \
 check "walking with the keyboard" "walk PASS" \
     "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
     res://tools/combat_range.tscn "$GODOT_LOG_DIR/walk.png" 200 walk
+# Pulls the peer out from under a live Gub and keeps ticking it, which is what
+# leaving a match does: the peer is nulled at once and the arena survives the
+# fade. `Gub.is_local` asked the missing peer for an id on every one of those
+# frames, from three call sites, for thirteen frames, every time.
+check "leaving a match cleanly" "leave PASS" \
+    "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
+    res://tools/combat_range.tscn "$GODOT_LOG_DIR/leave.png" 200 leave
 # Walks the menu into a real match and asks Input.mouse_mode what happened. It
 # grabs the physical mouse for about a second on the way through, which is the
 # only way to prove the thing it proves: every other check here stands the arena

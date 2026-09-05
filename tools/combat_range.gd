@@ -44,9 +44,14 @@ const DUMMY_BASE := 900
 ##              Trivial-looking, and it is here because movement was wired up in
 ##              this file and in the sandbox and nowhere else, so every testbed
 ##              could be walked around while the actual game could not.
+##   leave    — tears the session down out from under a live Gub and keeps
+##              ticking, which is what leaving a match actually does: `Net`
+##              nulls the multiplayer peer and `SceneFlow` then fades for 0.22 s
+##              before the arena is freed, so every Gub in the tree spends those
+##              frames still being processed with no peer to ask.
 ##   free     — no script; play it yourself
 const MODES := ["flight", "hit", "arc", "miss", "mushroom", "lure", "lure_self",
-	"walk", "free"]
+	"walk", "leave", "free"]
 
 ## How far the `walk` mode requires the Gub to travel. A Gub that is not walking
 ## still drifts a little as it settles onto the ground on the first few frames,
@@ -226,6 +231,9 @@ func _physics_process(_delta: float) -> void:
 	if _mode == "walk":
 		_drive_walk()
 		return
+	if _mode == "leave":
+		_drive_leave()
+		return
 
 	var player := MatchState.gubs.get(1) as Gub
 	if player == null:
@@ -319,6 +327,22 @@ func _trace_frame() -> void:
 			continue
 		print("  f%d spear at %v stuck=%s auth=%s" % [
 			_frames, spear.global_position, spear.is_stuck(), spear.authoritative])
+
+
+## Pull the peer out from under a live Gub and keep processing it.
+##
+## `announce` is false so that `left_lobby` does not fire and navigate this
+## testbed away: the point is to hold the game in the state it is in during the
+## fade, with Gubs still in the tree and `multiplayer.multiplayer_peer` already
+## null, and keep ticking them there.
+func _drive_leave() -> void:
+	if _frames == 30:
+		Net.leave_lobby(Net.Leave.LOCAL_REQUEST, "", false)
+		return
+	if _frames < 90:
+		return
+	print("combat_range: ticked %d frames after teardown — leave PASS" % 60)
+	get_tree().quit()
 
 
 ## Hold W for a second and see whether the Gub went anywhere.

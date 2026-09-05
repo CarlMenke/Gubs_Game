@@ -26,7 +26,7 @@ also a list of what nobody has.
 
 ### What was checked after the merge
 
-`bash tools/smoke_test.sh` passes 8 checks. Six of them predate both branches and
+`bash tools/smoke_test.sh` passes 9 checks. Six of them predate both branches and
 touch none of their scenes, so each merged screen was also rendered directly:
 
 | checked | how |
@@ -100,6 +100,25 @@ were confirmed to go red with their fix reverted before being kept.
 **If you add a testbed, ask what it is supplying by hand.** That list is the
 list of things nothing else is checking.
 
+### Leaving a match printed an engine error on every frame of the fade
+
+Different shape from the three above, and worth its own note because the class
+is common in Godot. `Gub.is_local` called `is_multiplayer_authority()`, which
+asks the peer for its own id. `Net.leave_lobby` nulls the peer immediately, and
+`SceneFlow` then fades for `FADE_OUT` before the arena is freed, so every Gub in
+the tree spent those frames asking a peer that was gone — from `_physics_process`,
+from the animator and from combat, three times a frame each. Godot prints
+`No multiplayer peer is assigned` and carries straight on, so the game looked
+fine and the console filled up.
+
+`Net.local_id` had guarded exactly this call in exactly this way from the start;
+`Gub.is_local` had never been given the same guard. It returns false now: nothing
+is locally controlled in a session that has ended.
+
+The smoke test now fails on that string wherever it appears, not only in the
+check that provoked it — it is always a bug, it is never noise, and Godot's habit
+of printing and continuing means nothing else will ever notice it.
+
 ### The ambient loops, which had the same shape
 
 The two branches disagreed about where the ambient loops live. `Ambience.LOOPS`
@@ -130,7 +149,7 @@ compile fine and quietly agree on nothing.
 
 ## The state of the game
 
-`main` is green: `bash tools/smoke_test.sh` passes 8 checks.
+`main` is green: `bash tools/smoke_test.sh` passes 9 checks.
 
 Phases 0 through 5 are complete, bar one spawn point (4.10) and the UI half of
 disconnect handling (1.8). Phase 6 is complete except the spectator camera (6.5)
@@ -216,7 +235,7 @@ one-line local patch (`from __future__ import annotations` at the top of its
 |---|---|
 | `smoke_test.sh` | **the gate** — import, two harnesses, three combat modes |
 | `snapshot.gd` | render a scene to PNG and quit — the main visual loop |
-| `combat_range.tscn` | **the combat testbed**: a real match, one player, dummies. `walk` mode asserts the keyboard moves a Gub |
+| `combat_range.tscn` | **the combat testbed**: a real match, one player, dummies. `walk` asserts the keyboard moves a Gub; `leave` tears the session down under one |
 | `match_rules.tscn` | 60 assertions across 9 scoring scenarios, headless |
 | `invite_codes.tscn` | 2619 assertions over 1296 endpoints, headless |
 | `ragdoll_stability.tscn` | throws a corpse with a real spear, requires it to settle |
