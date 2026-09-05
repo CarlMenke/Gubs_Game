@@ -95,6 +95,13 @@ func _process(delta: float) -> void:
 	_refresh_clock()
 	if _spectating:
 		_apply_spectator()
+	# An invariant rather than something switched on at the moment the match
+	# ends: the results screen replaces the gameplay HUD, it does not sit over
+	# it. Written this way it holds no matter who put the results screen up —
+	# `tools/hud_range.tscn` calls `show_summary` directly, and a rule that only
+	# fires on `match_finished` would be quietly false in the one place anybody
+	# ever photographs this screen.
+	_root.visible = not _results.visible
 
 
 # ------------------------------------------------------------------- input ---
@@ -394,7 +401,8 @@ func _on_match_finished(summary: Dictionary) -> void:
 	# The gameplay HUD goes away entirely rather than being dimmed behind the
 	# scrim. A crosshair, a live ability bar and a counting clock over a table of
 	# final scores read as a match still in progress, and the ability bar sat
-	# directly behind the button people are meant to press next.
+	# directly behind the button people are meant to press next. `_process` keeps
+	# it hidden for as long as the results are up.
 	_root.visible = false
 	_results.show_summary(summary)
 

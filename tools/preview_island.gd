@@ -41,6 +41,7 @@ const FLAGS := {
 	"nofog": "volumetric fog off, so surfaces are judged unmediated",
 	"flatterrain": "terrain in flat unshaded magenta, to see where it actually is",
 	"notorch": "every torch light off, leaving only the moon and the sky ambient",
+	"hud": "keep the match HUD, to judge it over the real map rather than a testbed",
 }
 
 var _view: String = "wide"
@@ -67,9 +68,10 @@ func _ready() -> void:
 
 	_arena = ARENA.instantiate() as Arena
 	# This tool exists to judge the island, and a crosshair and a kill feed over
-	# the shot are in the way of that. Set before `add_child`, because the HUD is
-	# built in the arena's own `_ready`.
-	_arena.show_hud = false
+	# the shot are in the way of that — so the HUD is off unless asked for. Set
+	# before `add_child`, because the HUD is built in the arena's own `_ready`.
+	# `hud` turns it back on, which is the only way to see the two together.
+	_arena.show_hud = _flags.has("hud")
 	add_child(_arena)
 
 	_apply_diagnostics()
