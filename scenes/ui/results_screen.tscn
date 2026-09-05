@@ -63,10 +63,23 @@ layout_mode = 2
 
 [node name="Actions" type="HBoxContainer" parent="Center/Stack"]
 layout_mode = 2
+theme_override_constants/separation = 14
 alignment = 1
+
+[node name="RematchButton" type="Button" parent="Center/Stack/Actions"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"PrimaryButton"
+text = "REMATCH"
 
 [node name="LobbyButton" type="Button" parent="Center/Stack/Actions"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_type_variation = &"PrimaryButton"
 text = "BACK TO THE LOBBY"
+
+[node name="HostHint" type="Label" parent="Center/Stack"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"TinyLabel"
+text = "WAITING FOR THE HOST"
+horizontal_alignment = 1

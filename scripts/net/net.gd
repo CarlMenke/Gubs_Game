@@ -34,12 +34,20 @@ enum Leave {
 }
 
 signal roster_changed()
+## A peer has gone, and whatever they left behind in the world is now orphaned.
+## `MatchState` listens for this to clear up their Gub — the roster is this
+## node's business, but a body standing in the arena is not.
+signal player_left(peer_id: int)
 signal joined_lobby()
 signal join_failed(message: String)
 signal left_lobby(reason: Leave, message: String)
 signal chat_received(peer_id: int, text: String)
 signal config_changed()
 signal match_start_requested()
+## The host has ended the match for everyone: back to the lobby, together.
+signal return_to_lobby_requested()
+## The host wants the same match again, same roster, same settings.
+signal rematch_requested()
 
 ## peer_id -> {name: String, team: int, ready: bool}
 var players: Dictionary = {}
@@ -289,8 +297,20 @@ func _on_peer_disconnected(peer_id: int) -> void:
 	if not is_host:
 		return
 	if players.erase(peer_id):
+		_announce_departure.rpc(peer_id)
+		_announce_departure(peer_id)
 		_broadcast_roster()
 		roster_changed.emit()
+
+
+## Told to everyone, not just the host, because every peer is carrying its own
+## copy of the departed player's Gub. Before this existed a client who alt-F4'd
+## mid-match left their Gub standing in the arena on all seven other machines,
+## for the rest of the match — a permanently motionless target that could still
+## be thrown at and still counted toward "last Gub standing".
+@rpc("authority", "call_remote", "reliable")
+func _announce_departure(peer_id: int) -> void:
+	player_left.emit(peer_id)
 
 
 func _on_connected_to_server() -> void:
@@ -485,6 +505,45 @@ func request_match_start() -> void:
 func _begin_match() -> void:
 	match_running = true
 	match_start_requested.emit()
+
+
+## Host only. Ends the match for everybody and sends the whole lobby home.
+##
+## Without this the host's "back to the lobby" button moved exactly one person:
+## every client stayed sitting on a results screen with no way out but leaving
+## the session entirely. A match is a thing the lobby does together, so ending
+## one is a broadcast rather than a local navigation.
+func request_return_to_lobby() -> void:
+	if not is_host:
+		return
+	match_running = false
+	_return_to_lobby.rpc()
+	_return_to_lobby()
+
+
+@rpc("authority", "call_remote", "reliable")
+func _return_to_lobby() -> void:
+	match_running = false
+	return_to_lobby_requested.emit()
+
+
+## Host only. Run it again — same roster, same settings, same map seed.
+##
+## The seed is deliberately left alone. "Rematch" is a request for another go at
+## the match everyone just agreed to, and quietly handing them a different island
+## would be a different request. Rerolling the map is a lobby control.
+func request_rematch() -> void:
+	if not is_host:
+		return
+	match_running = true
+	_rematch.rpc()
+	_rematch()
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rematch() -> void:
+	match_running = true
+	rematch_requested.emit()
 
 
 # ------------------------------------------------------------- addressing ---

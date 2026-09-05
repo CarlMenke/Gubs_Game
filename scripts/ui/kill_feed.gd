@@ -53,8 +53,17 @@ func add_kill(victim_id: int, killer_id: int, cause: int) -> void:
 
 	add_child(row)
 	move_child(row, 0)  # newest at the top, nearest the eye
+	# `remove_child` first, and it is not optional. `queue_free` defers to the end
+	# of the frame, so a loop that frees a child and then re-reads
+	# `get_child_count()` sees the same number it saw last time and spins for
+	# ever. The sixth death in any match — six kills inside the 5.9 s a row is on
+	# screen, which in an eight-player game with a one-hit weapon is an ordinary
+	# fight — hung the process at 100% CPU with no error and no output.
+	# `remove_child` detaches immediately, so the count actually falls.
 	while get_child_count() > MAX_ROWS:
-		get_child(get_child_count() - 1).queue_free()
+		var oldest := get_child(get_child_count() - 1)
+		remove_child(oldest)
+		oldest.queue_free()
 
 	# A row you are in stays at full strength for its whole life; everyone
 	# else's settles back so the feed reads as background.

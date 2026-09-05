@@ -49,6 +49,7 @@ var _finished: bool = false
 
 func _ready() -> void:
 	Net.left_lobby.connect(_on_left_lobby)
+	Net.player_left.connect(_on_player_left)
 
 
 func config() -> MatchConfig:
@@ -78,6 +79,25 @@ func register_arena(players_root: Node, spawn_points: Array[Transform3D]) -> voi
 
 func _on_left_lobby(_reason: int, _message: String) -> void:
 	reset()
+
+
+## Somebody disconnected. Take their Gub out of the world on every machine, and
+## take their row out of the scoring, so the match can still end.
+##
+## The win check has to run again afterwards. In a lives match the leaver may
+## have been the only thing standing between someone else and "last Gub
+## standing", and without this the match simply never ends — everyone waits on a
+## player who closed the game.
+func _on_player_left(peer_id: int) -> void:
+	var gub: Gub = gubs.get(peer_id)
+	if is_instance_valid(gub):
+		gub.queue_free()
+	gubs.erase(peer_id)
+	stats.erase(peer_id)
+	scores_changed.emit()
+	if Net.is_host and phase == Phase.PLAYING:
+		_push_scores()
+		_check_win()
 
 
 func reset() -> void:
@@ -502,6 +522,23 @@ func _finish(reason: String) -> void:
 func _sync_finish(summary: Dictionary) -> void:
 	_set_phase(Phase.POST_MATCH)
 	match_finished.emit(summary)
+
+
+## Every Gub still standing, best-scoring first, optionally excluding one peer.
+##
+## This is the spectator's channel list (PLAN 6.5). Ordering it by score rather
+## than by peer id means the first thing a dead player is shown is whoever is
+## currently winning, which is the most interesting camera in the match and the
+## one they would have picked.
+func living_gubs(exclude_id: int = 0) -> Array[Gub]:
+	var out: Array[Gub] = []
+	for peer_id: int in ranking():
+		if peer_id == exclude_id:
+			continue
+		var gub: Gub = gubs.get(peer_id)
+		if is_instance_valid(gub) and gub.alive:
+			out.append(gub)
+	return out
 
 
 ## The Gub this client is driving, or null while dead or spectating.

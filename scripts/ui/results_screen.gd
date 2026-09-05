@@ -12,6 +12,7 @@ extends Control
 ## happened is still visible behind the numbers.
 
 signal return_to_lobby()
+signal rematch()
 
 const CURSOR_REASON := "results"
 
@@ -19,11 +20,14 @@ const CURSOR_REASON := "results"
 @onready var _subtitle: Label = %Subtitle
 @onready var _rows: VBoxContainer = %Rows
 @onready var _lobby_button: Button = %LobbyButton
+@onready var _rematch_button: Button = %RematchButton
+@onready var _host_hint: Label = %HostHint
 
 
 func _ready() -> void:
 	visible = false
 	_lobby_button.pressed.connect(_on_lobby)
+	_rematch_button.pressed.connect(_on_rematch)
 
 
 func show_summary(summary: Dictionary) -> void:
@@ -31,7 +35,22 @@ func show_summary(summary: Dictionary) -> void:
 	SceneFlow.release_cursor(CURSOR_REASON)
 	_fill_headline(summary)
 	_fill_table(summary)
-	_lobby_button.grab_focus()
+	_apply_host_controls()
+
+
+## What happens next is the host's call, so only the host gets the buttons that
+## decide it. Showing everyone a REMATCH button that silently does nothing on
+## seven of the eight machines is worse than showing them who they are waiting
+## for — and a client's own "back to the lobby" still works, because leaving a
+## match you are done with should never need anyone's permission.
+func _apply_host_controls() -> void:
+	var host := Net.is_host
+	_rematch_button.visible = host
+	_host_hint.visible = not host
+	if host:
+		_rematch_button.grab_focus()
+	else:
+		_lobby_button.grab_focus()
 
 
 func close() -> void:
@@ -44,6 +63,11 @@ func close() -> void:
 func _on_lobby() -> void:
 	close()
 	return_to_lobby.emit()
+
+
+func _on_rematch() -> void:
+	close()
+	rematch.emit()
 
 
 # ---------------------------------------------------------------- headline ---

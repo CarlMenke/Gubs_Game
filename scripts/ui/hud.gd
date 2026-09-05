@@ -21,6 +21,11 @@ extends CanvasLayer
 ## it is on a short leash.
 const FLASH_TIME := 1.4
 
+## Everything drawn *during* play lives under this one node — clock, score, kill
+## feed, crosshair, banner, ability bar, chat. The scoreboard, pause menu and
+## results screen are its siblings, so any of them can take the screen by
+## hiding it rather than by each element knowing about each overlay.
+@onready var _root: Control = $Root
 @onready var _crosshair: Crosshair = %Crosshair
 @onready var _clock: Label = %Clock
 @onready var _score_line: RichTextLabel = %ScoreLine
@@ -33,6 +38,7 @@ const FLASH_TIME := 1.4
 @onready var _banner: Control = %Banner
 @onready var _banner_title: Label = %BannerTitle
 @onready var _banner_sub: Label = %BannerSub
+@onready var _spectate_label: Label = %SpectateLabel
 @onready var _chat: ChatPanel = %Chat
 @onready var _scoreboard: Scoreboard = %Scoreboard
 @onready var _pause: PauseMenu = %PauseMenu
@@ -45,6 +51,12 @@ const FLASH_TIME := 1.4
 var _phase_clock: float = 0.0
 ## Seconds until the local Gub respawns, from `local_death`.
 var _respawn_clock: float = 0.0
+## Index into `MatchState.living_gubs()` while spectating (PLAN 6.5). Held as an
+## index rather than as a reference to the Gub because the list changes under us
+## constantly — the player being watched dies, respawns, or leaves — and an index
+## degrades into "somebody else" where a stale reference degrades into a crash.
+var _spectate_index: int = 0
+var _spectating: bool = false
 var _flash: float = 0.0
 
 
@@ -58,6 +70,7 @@ func _ready() -> void:
 	_pause.resumed.connect(_on_resumed)
 	_pause.left_match.connect(_on_leave_match)
 	_results.return_to_lobby.connect(_on_back_to_lobby)
+	_results.rematch.connect(_on_rematch_pressed)
 
 	MatchState.phase_changed.connect(_on_phase_changed)
 	MatchState.scores_changed.connect(_refresh_score)
@@ -67,6 +80,8 @@ func _ready() -> void:
 	MatchState.local_respawn.connect(_on_local_respawn)
 	Net.chat_received.connect(_chat.add_message)
 	Net.left_lobby.connect(_on_left_lobby)
+	Net.return_to_lobby_requested.connect(_go_to_lobby)
+	Net.rematch_requested.connect(_on_rematch)
 
 	_banner.visible = false
 	_refresh_score()
@@ -78,6 +93,8 @@ func _process(delta: float) -> void:
 	_refresh_crosshair()
 	_refresh_abilities()
 	_refresh_clock()
+	if _spectating:
+		_apply_spectator()
 
 
 # ------------------------------------------------------------------- input ---
@@ -94,6 +111,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if _pause.visible or _results.visible:
 		return
+	# Dead players have no spear to throw, so the throw and aim buttons are free
+	# and are the two most obvious things to press. They step the spectator
+	# camera forward and back through whoever is still alive.
+	if _spectating:
+		if event.is_action_pressed("throw_spear"):
+			get_viewport().set_input_as_handled()
+			_step_spectator(1)
+			return
+		if event.is_action_pressed("aim"):
+			get_viewport().set_input_as_handled()
+			_step_spectator(-1)
+			return
 	if event.is_action_pressed("scoreboard"):
 		_scoreboard.open()
 	elif event.is_action_released("scoreboard"):
@@ -236,6 +265,15 @@ func _refresh_lives() -> void:
 
 # ----------------------------------------------------------------- signals ---
 
+## Put the gameplay HUD back after a results screen. Leaving the arena rebuilds
+## the whole scene so this would not be needed for that alone — but a rematch
+## that reuses the arena would otherwise start with everything still hidden.
+func restore_gameplay_hud() -> void:
+	_root.visible = true
+	_results.close()
+	_end_spectating()
+
+
 func _on_phase_changed(phase: int) -> void:
 	match phase:
 		MatchState.Phase.WARMUP:
@@ -266,10 +304,13 @@ func _on_player_killed(victim_id: int, killer_id: int, cause: int) -> void:
 
 func _on_local_death(respawn_in: float) -> void:
 	_scoreboard.close()
+	# Watch somebody who is still playing rather than the patch of dirt you died
+	# on. This matters most in a lives match, where "dead" is permanent and the
+	# alternative is staring at your own corpse until the match ends.
+	_begin_spectating()
 	if _is_eliminated():
 		_respawn_clock = 0.0
-		_show_banner("ELIMINATED", "Spectating. The match goes on without you.",
-			UIPalette.DANGER)
+		_show_banner("ELIMINATED", "The match goes on without you.", UIPalette.DANGER)
 		return
 	_respawn_clock = maxf(0.1, respawn_in)
 	_show_banner("YOU DIED", "Back in %d" % ceili(_respawn_clock), UIPalette.DANGER)
@@ -278,6 +319,63 @@ func _on_local_death(respawn_in: float) -> void:
 func _on_local_respawn() -> void:
 	_respawn_clock = 0.0
 	_banner.visible = false
+	_end_spectating()
+
+
+# -------------------------------------------------------------- spectating ---
+
+## The local Gub's own rig, which keeps the viewport even while its Gub is
+## hidden. Null once the match has torn its Gubs down.
+func _local_rig() -> GubCamera:
+	var gub := MatchState.local_gub()
+	if gub == null:
+		return null
+	return gub.get_node_or_null("CameraRig") as GubCamera
+
+
+func _begin_spectating() -> void:
+	var living := MatchState.living_gubs(Net.local_id())
+	if living.is_empty():
+		return
+	_spectating = true
+	_spectate_index = 0
+	_apply_spectator()
+
+
+func _end_spectating() -> void:
+	_spectating = false
+	var rig := _local_rig()
+	if rig != null:
+		rig.spectate(null)
+	_spectate_label.visible = false
+
+
+func _step_spectator(direction: int) -> void:
+	var living := MatchState.living_gubs(Net.local_id())
+	if living.is_empty():
+		return
+	_spectate_index = posmod(_spectate_index + direction, living.size())
+	_apply_spectator()
+
+
+## Point the rig at the current pick and say whose eyes we are borrowing. Called
+## every frame while dead as well as on a keypress, because the target can die
+## or respawn without the player touching anything.
+func _apply_spectator() -> void:
+	if not _spectating:
+		return
+	var living := MatchState.living_gubs(Net.local_id())
+	var rig := _local_rig()
+	if living.is_empty() or rig == null:
+		_spectate_label.visible = false
+		if rig != null:
+			rig.spectate(null)
+		return
+	_spectate_index = posmod(_spectate_index, living.size())
+	var target := living[_spectate_index]
+	rig.spectate(target)
+	_spectate_label.text = "Spectating %s      LMB / RMB to switch" % target.display_name
+	_spectate_label.visible = true
 
 
 ## Out of lives, in a mode that has them. The distinction matters: a dead Gub is
@@ -292,6 +390,12 @@ func _on_match_finished(summary: Dictionary) -> void:
 	_banner.visible = false
 	_scoreboard.close()
 	_pause.close()
+	_end_spectating()
+	# The gameplay HUD goes away entirely rather than being dimmed behind the
+	# scrim. A crosshair, a live ability bar and a counting clock over a table of
+	# final scores read as a match still in progress, and the ability bar sat
+	# directly behind the button people are meant to press next.
+	_root.visible = false
 	_results.show_summary(summary)
 
 
@@ -310,10 +414,20 @@ func _on_leave_match() -> void:
 	Net.leave_lobby(Net.Leave.LOCAL_REQUEST, "", true)
 
 
-## Every client walks itself back to the lobby. `Net` has no "the match is over,
-## everyone return" message, so the host pressing this cannot bring the others
-## with it — see the note in the final report.
+## The host ends the match for the whole lobby; a client only moves itself.
+##
+## `Net.request_return_to_lobby` broadcasts, and everyone — the host included —
+## arrives back here through `_go_to_lobby`. A client pressing the same button
+## just walks itself home and stays connected, so leaving a results screen never
+## needs the host's cooperation.
 func _on_back_to_lobby() -> void:
+	if Net.is_host:
+		Net.request_return_to_lobby()
+	else:
+		_go_to_lobby()
+
+
+func _go_to_lobby() -> void:
 	MatchState.reset()
 	if Net.is_host:
 		# Otherwise the lobby keeps refusing joiners with "that match has
@@ -321,6 +435,21 @@ func _on_back_to_lobby() -> void:
 		Net.match_running = false
 	SceneFlow.clear_cursor_holds()
 	SceneFlow.go_to_lobby()
+
+
+## Host only; the button is not shown to anyone else.
+func _on_rematch_pressed() -> void:
+	Net.request_rematch()
+
+
+## Same roster, same settings, same island. Reloading the arena scene is what
+## re-runs `register_arena`, and on the host that is what starts a fresh warmup
+## and spawns everybody again — so a rematch is a scene change, not a special
+## case inside `MatchState`.
+func _on_rematch() -> void:
+	MatchState.reset()
+	SceneFlow.clear_cursor_holds()
+	SceneFlow.go_to_arena()
 
 
 func _show_banner(title: String, subtitle: String, colour: Color) -> void:

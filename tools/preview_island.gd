@@ -66,6 +66,10 @@ func _ready() -> void:
 		_start_session()
 
 	_arena = ARENA.instantiate() as Arena
+	# This tool exists to judge the island, and a crosshair and a kill feed over
+	# the shot are in the way of that. Set before `add_child`, because the HUD is
+	# built in the arena's own `_ready`.
+	_arena.show_hud = false
 	add_child(_arena)
 
 	_apply_diagnostics()

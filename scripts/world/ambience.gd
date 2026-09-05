@@ -14,11 +14,20 @@ extends RefCounted
 ## playing different games. It is seeded because it costs nothing to be, and
 ## because "why is this frame different" is a question worth never having to ask.
 
-## Ambient loops, by the bus they belong on. None of these files exist yet — see
-## the note on `_build_audio` — and each one is skipped silently until it does.
+## Ambient loops (4.9), by the bus they belong on.
+##
+## These are the beds `tools/make_sfx.py` synthesises — 12 s of wind and 16 s of
+## forest, each seamless by construction rather than by crossfade, so they can
+## run for a whole match without the loop point ever announcing itself.
+##
+## The paths here were guessed (`assets/audio/ambience/*.ogg`) on the branch this
+## file was written on, while the branch that produced the audio committed it to
+## `audio/ambience/*.wav`. `_build_audio` skips a missing file in silence, so the
+## island shipped with no ambience at all and nothing said so. Naming the real
+## files is the entire fix; the machinery below was always finished.
 const LOOPS := {
-	"forest": "res://assets/audio/ambience/forest_night.ogg",
-	"wind": "res://assets/audio/ambience/wind_high.ogg",
+	"forest": "res://audio/ambience/ambient_forest.wav",
+	"wind": "res://audio/ambience/ambient_wind.wav",
 }
 
 

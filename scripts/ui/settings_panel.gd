@@ -320,8 +320,14 @@ static func describe_event(event: InputEvent, short: bool = false) -> String:
 	if event is InputEventKey:
 		var key := event as InputEventKey
 		var code := key.physical_keycode if key.physical_keycode != 0 else key.keycode
-		return OS.get_keycode_string(
-			DisplayServer.keyboard_get_keycode_from_physical(code))
+		# The headless display server does not implement this, and every build of
+		# a settings panel or a chat panel therefore printed a stack trace — which
+		# was most of the noise in every automated log, from three different
+		# screens. Headless has no keyboard layout to translate for anyway, so the
+		# physical code *is* the answer there.
+		if DisplayServer.get_name() != "headless":
+			code = DisplayServer.keyboard_get_keycode_from_physical(code)
+		return OS.get_keycode_string(code)
 	if event is InputEventMouseButton:
 		var button := (event as InputEventMouseButton).button_index
 		var table: Dictionary = MOUSE_BUTTON_CAPS if short else MOUSE_BUTTON_NAMES

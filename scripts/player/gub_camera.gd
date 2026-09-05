@@ -11,6 +11,14 @@ extends Node3D
 ## facing is a consequence of where you are moving, not of where you are
 ## looking, so binding the two together would make the camera lurch every time
 ## the Gub turned to run somewhere.
+##
+## While the owner is dead it can follow somebody else instead (PLAN 6.5). That
+## is deliberately a change of *subject* rather than a second camera: the spring
+## arm, the collision mask, the mouse look and the shake are all already solved
+## here, and a separate spectator rig would have to solve them again and then
+## drift out of step with this one. A dead Gub's node is only hidden, never
+## freed, so its rig is still alive and still holds the viewport — pointing it at
+## a living Gub is the whole of the feature.
 
 const PITCH_MIN := -1.20   # ~-69 degrees, looking down
 const PITCH_MAX := 0.95    # ~54 degrees, looking up
@@ -41,6 +49,8 @@ var _base_fov: float = 75.0
 var _shake_strength: float = 0.0
 var _shake_decay: float = 6.0
 var _aiming: bool = false
+## Whose shoulder we are watching over while dead. Null means our own Gub.
+var _spectating: Gub = null
 
 
 func _ready() -> void:
@@ -95,7 +105,7 @@ func _process(delta: float) -> void:
 	if _body == null:
 		return
 
-	_aiming = Input.is_action_pressed("aim") and _body.alive
+	_aiming = Input.is_action_pressed("aim") and _body.alive and _spectating == null
 	_follow(delta)
 	_apply_zoom(delta)
 	_apply_shake(delta)
@@ -106,7 +116,10 @@ func _process(delta: float) -> void:
 	# Hand the body a view basis so WASD is relative to where you are looking,
 	# and tell it to face the camera while aiming so a throw goes to the
 	# crosshair rather than to wherever the Gub happened to be running.
-	_body.set_view_basis(global_transform.basis, _aiming or _body_is_throwing())
+	# Not while spectating: the corpse is not ours to steer, and turning the view
+	# would spin a body somebody else is still watching.
+	if _spectating == null:
+		_body.set_view_basis(global_transform.basis, _aiming or _body_is_throwing())
 
 
 func _body_is_throwing() -> bool:
@@ -114,8 +127,28 @@ func _body_is_throwing() -> bool:
 	return animator != null and animator.is_throwing()
 
 
+## The Gub the rig is currently framing — the one we are spectating if that Gub
+## is still around, and our own otherwise. A spectated Gub can be freed out from
+## under us (they leave, the match resets), so this is checked every frame rather
+## than trusted once.
+func _subject() -> Gub:
+	if _spectating != null and is_instance_valid(_spectating):
+		return _spectating
+	return _body
+
+
+## Watch `target` instead of our own Gub. Pass null to go back to our own.
+func spectate(target: Gub) -> void:
+	_spectating = target if target != _body else null
+
+
+func spectating() -> Gub:
+	return _spectating if is_instance_valid(_spectating) else null
+
+
 func _follow(delta: float) -> void:
-	var target := _body.global_position + Vector3.UP * _body.eye_height()
+	var subject := _subject()
+	var target := subject.global_position + Vector3.UP * subject.eye_height()
 	# Vertical follow is slower than horizontal: stairs and small bumps should
 	# not pump the camera up and down.
 	var next := global_position

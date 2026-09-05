@@ -154,6 +154,14 @@ func _equip_spear() -> void:
 
 
 func is_local() -> bool:
+	# `is_multiplayer_authority()` asks the SceneTree's multiplayer for its unique
+	# id, and with no peer set that is an error — printed once per Gub per frame.
+	# A Gub outlives its session by the moment between `Net.leave_lobby()` and the
+	# scene actually changing, and in that gap this used to fill the log with
+	# hundreds of lines of stack trace. Nobody owns a Gub in a session that does
+	# not exist, so the honest answer there is false.
+	if multiplayer.multiplayer_peer == null:
+		return false
 	return is_multiplayer_authority()
 
 

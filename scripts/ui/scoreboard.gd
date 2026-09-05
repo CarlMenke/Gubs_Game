@@ -6,6 +6,14 @@ extends Control
 ## on screen while a key is held, the roster is at most eight rows, and a table
 ## that rebuilds is a table that cannot drift out of step with `MatchState`.
 ##
+## The clock is the one exception, and it has to be. Scores change on a kill, so
+## rebuilding on `scores_changed` keeps the table honest — but the clock changes
+## every second whether anyone dies or not, so a clock painted once at `open()`
+## freezes for as long as the board is held down. Holding Tab through a quiet
+## thirty seconds showed a clock thirty seconds stale sitting directly under a
+## live one in the HUD above it. It ticks in `_process` now, and only while the
+## board is actually visible.
+##
 ## The scrim is deliberately light. This is held down *during* a fight, often
 ## while running, and a scoreboard that blacks out the game is one you cannot
 ## afford to read.
@@ -24,16 +32,31 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_scrim.color = SCRIM
 	visible = false
+	set_process(false)
 	MatchState.scores_changed.connect(_on_scores_changed)
+
+
+## Only the clock, and only while the board is up. Everything else on this panel
+## is event-driven and rebuilding all eight rows every frame to move one label
+## would be wasteful for no gain.
+func _process(_delta: float) -> void:
+	_refresh_clock()
+
+
+func _refresh_clock() -> void:
+	var config := Net.config
+	_clock.text = UIPalette.clock(MatchState.time_left) if config.time_limit > 0 else "--:--"
 
 
 func open() -> void:
 	visible = true
+	set_process(true)
 	rebuild()
 
 
 func close() -> void:
 	visible = false
+	set_process(false)
 
 
 func _on_scores_changed() -> void:
@@ -47,7 +70,7 @@ func rebuild() -> void:
 
 	var config := Net.config
 	_summary.text = config.summary()
-	_clock.text = UIPalette.clock(MatchState.time_left) if config.time_limit > 0 else "--:--"
+	_refresh_clock()
 	_lives_heading.visible = config.win_condition == MatchConfig.WinCondition.LIVES
 
 	if config.mode == MatchConfig.Mode.TEAMS:
