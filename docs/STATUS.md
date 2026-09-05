@@ -23,7 +23,7 @@ The game can now be played end to end for the first time: `SceneFlow` points at
 
 ### What was checked after the merge
 
-`bash tools/smoke_test.sh` passes 7 checks. Six of them predate both branches and
+`bash tools/smoke_test.sh` passes 8 checks. Six of them predate both branches and
 touch none of their scenes, so each merged screen was also rendered directly:
 
 | checked | how |
@@ -44,7 +44,23 @@ A human still has not played it end to end. `tools/cursor_flow.tscn` now walks
 menu → match automatically, but nothing has gone through a lobby with two
 clients and out to the results screen.
 
-### Two things the merge left broken, and the fixes
+### Three things that were wired only into the testbeds
+
+All three are the same bug wearing different clothes, and the pattern is worth
+more than any of them: **`tools/` did the job the game was supposed to do.** Each
+testbed stands its subject up directly and supplies by hand whatever the real
+scene was meant to supply. That makes them excellent at proving a *feature*
+works and blind, by construction, to whether anything ever calls it.
+
+**Nothing read the movement keys.** `Gub` exposes `input_direction`,
+`wants_sprint`, `wants_crouch` and `request_jump()` and fills none of them;
+`combat_range.gd` and `sandbox.gd` each had their own `_read_input`, and the
+arena had nothing. So every testbed could be walked around and the real game
+could not — while the abilities, which read their own keys in `GubCombat`, kept
+working and made it look like input was fine. `Gub._read_input` now does it,
+next to the movement it feeds, and the two testbed copies are gone.
+
+**The arena never instanced the HUD.**
 
 **The arena never instanced the HUD.** `arena.tscn` was a one-node scene and
 nothing anywhere added `hud.tscn` to it, so a real match had no crosshair, no
@@ -53,17 +69,23 @@ which existed, all of which had been looked at in `tools/hud_range.tscn`, and
 none of which a player could reach. `hud.gd`'s own header had documented the
 line that was missing since the day it was written. The arena instances it now.
 
-**Entering a match did not capture the mouse.** The menu and the lobby each take
+**Entering a match did not take the mouse.** The menu and the lobby each take
 a named cursor hold in `_ready` and neither has anywhere to give it back;
 `SceneFlow` only resumed capture when the set of holds emptied, so they piled up
 and the match ran with a free cursor. Mouse-look and throwing are both gated on
 `SceneFlow.cursor_is_free()`, so this was not a cosmetic bug — the game was
 unplayable. A hold is now dropped with the scene that took it.
 
-Neither is a merge conflict. Both are the same shape: two halves that compile,
-that were each verified on their own, and that no one had ever asked to work
-together. `tools/cursor_flow.tscn` now covers the second one, and it is the only
-check in the suite that walks the path a player walks.
+None of the three is a merge conflict, and no conflict could have flagged them:
+they are halves that compile, that were each verified alone, and that nobody had
+asked to work together. Two new checks cover them — `tools/cursor_flow.tscn`,
+which walks menu → match through the real `SceneFlow` and asks
+`Input.mouse_mode` what happened, and `combat_range`'s `walk` mode, which holds W
+through `Input.action_press` and requires the Gub to have moved a metre. Both
+were confirmed to go red with their fix reverted before being kept.
+
+**If you add a testbed, ask what it is supplying by hand.** That list is the
+list of things nothing else is checking.
 
 ### The ambient loops, which had the same shape
 
@@ -93,7 +115,7 @@ compile fine and quietly agree on nothing.
 
 ## The state of the game
 
-`main` is green: `bash tools/smoke_test.sh` passes 7 checks.
+`main` is green: `bash tools/smoke_test.sh` passes 8 checks.
 
 Phases 0 through 5 are complete, bar one spawn point (4.10) and the UI half of
 disconnect handling (1.8). Phase 6 is complete except the spectator camera (6.5)
@@ -179,7 +201,7 @@ one-line local patch (`from __future__ import annotations` at the top of its
 |---|---|
 | `smoke_test.sh` | **the gate** — import, two harnesses, three combat modes |
 | `snapshot.gd` | render a scene to PNG and quit — the main visual loop |
-| `combat_range.tscn` | **the combat testbed**: a real match, one player, dummies |
+| `combat_range.tscn` | **the combat testbed**: a real match, one player, dummies. `walk` mode asserts the keyboard moves a Gub |
 | `match_rules.tscn` | 60 assertions across 9 scoring scenarios, headless |
 | `invite_codes.tscn` | 2619 assertions over 1296 endpoints, headless |
 | `ragdoll_stability.tscn` | throws a corpse with a real spear, requires it to settle |

@@ -101,9 +101,16 @@ var alive: bool = true
 ## Set while the round is starting or just after a respawn; blocks damage.
 var invulnerable_until: float = 0.0
 
+## Movement intent for this frame. Filled from the keyboard in `_read_input`
+## when this Gub is the local one, and set directly by the testbeds that script
+## a Gub through a pose — see `reads_local_input`.
 var input_direction: Vector2 = Vector2.ZERO
 var wants_sprint: bool = false
 var wants_crouch: bool = false
+## False on a Gub whose movement is being driven by something other than the
+## player: `tools/sandbox.gd` walks one through scripted poses for a snapshot,
+## and reading an empty keyboard over the top of that would zero it every frame.
+var reads_local_input: bool = true
 var body_yaw: float = 0.0
 
 var _coyote: float = 0.0
@@ -172,6 +179,7 @@ func _physics_process(delta: float) -> void:
 		_publish()
 		return
 
+	_read_input()
 	_tick_timers(delta)
 	_apply_gravity(delta)
 	_handle_slide(delta)
@@ -189,6 +197,34 @@ func _physics_process(delta: float) -> void:
 
 	_face(delta)
 	_publish()
+
+
+# ------------------------------------------------------------------- input ---
+
+## The keyboard half of a Gub. The mouse half lives in `GubCamera`, and the
+## ability keys in `GubCombat`, which reads them exactly like this.
+##
+## This belongs on the Gub rather than on whatever scene is hosting it. It used
+## to live only in `tools/combat_range.gd` and `tools/sandbox.gd`, which meant
+## every testbed could be walked around and the actual game could not: the arena
+## had nothing playing the part those two were playing, so `input_direction`
+## stayed at zero for the whole match while the abilities — which do read their
+## own keys — worked perfectly, and made it look like input was fine.
+func _read_input() -> void:
+	if not reads_local_input:
+		return
+	# Typing in chat, or reading the scoreboard, is not walking into a wall.
+	if SceneFlow.cursor_is_free():
+		input_direction = Vector2.ZERO
+		wants_sprint = false
+		wants_crouch = false
+		return
+	input_direction = Input.get_vector("move_left", "move_right",
+		"move_forward", "move_back")
+	wants_sprint = Input.is_action_pressed("sprint")
+	wants_crouch = Input.is_action_pressed("crouch")
+	if Input.is_action_just_pressed("jump"):
+		request_jump()
 
 
 # ------------------------------------------------------------------ motion ---

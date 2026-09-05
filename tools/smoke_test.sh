@@ -187,6 +187,13 @@ check "lure catches" "combat_range: lure caught 1" \
 check "mushroom deploys" "snapshot: wrote" \
     "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
     res://tools/combat_range.tscn "$GODOT_LOG_DIR/mushroom.png" 40 mushroom
+# Holds W and requires the Gub to have gone somewhere. Movement was wired into
+# the testbeds and nowhere else, so every testbed could be walked around while
+# the real arena could not, and the abilities — which read their own keys —
+# kept working and made it look like input was fine.
+check "walking with the keyboard" "walk PASS" \
+    "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
+    res://tools/combat_range.tscn "$GODOT_LOG_DIR/walk.png" 200 walk
 # Walks the menu into a real match and asks Input.mouse_mode what happened. It
 # grabs the physical mouse for about a second on the way through, which is the
 # only way to prove the thing it proves: every other check here stands the arena
