@@ -26,8 +26,12 @@ import numpy as np
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(REPO, "audio", "sfx")
+AMBIENCE_DIR = os.path.join(REPO, "audio", "ambience")
 
 RATE = 44100
+## Ambience beds are all low-frequency wash with nothing above a few kHz, so
+## half the sample rate costs nothing audible and halves the file.
+AMBIENCE_RATE = 22050
 
 
 def envelope(n, attack, decay, curve=2.0):
@@ -83,18 +87,81 @@ def normalise(signal, peak=0.85):
     return signal / high * peak
 
 
-def write(name, signal):
-    if not os.path.isdir(OUT_DIR):
-        os.makedirs(OUT_DIR)
-    data = np.clip(normalise(signal), -1.0, 1.0)
+def write(name, signal, directory=None, rate=RATE, peak=0.85):
+    directory = directory or OUT_DIR
+    if not os.path.isdir(directory):
+        os.makedirs(directory)
+    data = np.clip(normalise(signal, peak), -1.0, 1.0)
     pcm = (data * 32767.0).astype("<i2")
-    path = os.path.join(OUT_DIR, "%s.wav" % name)
+    path = os.path.join(directory, "%s.wav" % name)
     with wave.open(path, "wb") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)
-        handle.setframerate(RATE)
+        handle.setframerate(rate)
         handle.writeframes(pcm.tobytes())
-    print("  %-18s %5.2fs  %5d KB" % (name, len(data) / RATE, os.path.getsize(path) // 1024))
+    print("  %-18s %5.2fs  %5d KB" % (name, len(data) / rate, os.path.getsize(path) // 1024))
+
+
+# --------------------------------------------------------------- ambience ---
+
+def looping_noise(n, low_hz, high_hz, seed):
+    """Noise that loops perfectly, band-limited between two frequencies.
+
+    Built in the frequency domain rather than filtered in the time domain. Every
+    component is an exact whole number of cycles across the buffer, so the last
+    sample runs into the first with no discontinuity — which is the entire
+    problem with looping an ambience bed. Crossfading the ends of ordinary noise
+    hides the seam; this one has no seam to hide.
+    """
+    rng = np.random.default_rng(seed)
+    spectrum = np.zeros(n // 2 + 1, dtype=complex)
+    freqs = np.fft.rfftfreq(n, 1.0 / AMBIENCE_RATE)
+    band = (freqs >= low_hz) & (freqs <= high_hz)
+    # 1/f inside the band: white noise sounds like static, pink like weather.
+    magnitude = np.zeros_like(freqs)
+    magnitude[band] = 1.0 / np.maximum(freqs[band], 1.0)
+    phase = rng.uniform(0.0, 2.0 * np.pi, len(freqs))
+    spectrum = magnitude * np.exp(1j * phase)
+    return np.fft.irfft(spectrum, n)
+
+
+def looping_swell(n, cycles, depth=0.45):
+    """A slow amplitude drift that also closes its own loop, because it is built
+    from whole numbers of cycles across the buffer."""
+    t = np.linspace(0.0, 2.0 * np.pi, n, endpoint=False)
+    return 1.0 - depth + depth * (0.5 + 0.5 * np.sin(cycles * t))
+
+
+def ambient_wind():
+    """The bed under everything: air moving through a lot of leaves."""
+    n = int(AMBIENCE_RATE * 12.0)
+    body = looping_noise(n, 40.0, 900.0, 11)
+    # A brighter layer that swells on a different period, so the two never line
+    # up and the loop does not announce itself every twelve seconds.
+    body += 0.35 * looping_noise(n, 700.0, 4200.0, 12) * looping_swell(n, 3)
+    return body * looping_swell(n, 2, 0.5)
+
+
+def ambient_forest():
+    """Night in the hollow. Low drone, a slow shimmer above it, and no events —
+    anything that reads as a distinct sound would repeat on the loop and become
+    the only thing anyone can hear."""
+    n = int(AMBIENCE_RATE * 16.0)
+    t = np.linspace(0.0, n / AMBIENCE_RATE, n, endpoint=False)
+    bed = 0.7 * looping_noise(n, 30.0, 500.0, 21) * looping_swell(n, 2, 0.35)
+    shimmer = 0.5 * looping_noise(n, 2000.0, 7000.0, 22) * looping_swell(n, 5, 0.6)
+    # Two quiet drones a fifth apart, at exact whole cycles across the buffer.
+    drone = np.zeros(n)
+    for cycles, gain in [(round(55.0 * n / AMBIENCE_RATE), 0.30),
+                         (round(82.5 * n / AMBIENCE_RATE), 0.18)]:
+        drone += gain * np.sin(2.0 * np.pi * cycles * t / (n / AMBIENCE_RATE))
+    return bed + shimmer + drone * 0.35
+
+
+AMBIENCE = {
+    "ambient_wind": ambient_wind,
+    "ambient_forest": ambient_forest,
+}
 
 
 # ----------------------------------------------------------------- effects ---
@@ -219,6 +286,11 @@ def main():
     print("writing to audio/sfx/")
     for name in sorted(EFFECTS):
         write(name, EFFECTS[name]())
+    print("writing to audio/ambience/")
+    for name in sorted(AMBIENCE):
+        # Ambience sits under the game rather than on top of it, so it is
+        # normalised well below the effects.
+        write(name, AMBIENCE[name](), AMBIENCE_DIR, AMBIENCE_RATE, peak=0.55)
     print("done.")
 
 

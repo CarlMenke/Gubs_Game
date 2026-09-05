@@ -24,6 +24,12 @@ const DEATH := preload("res://audio/sfx/death.wav")
 const RESPAWN := preload("res://audio/sfx/respawn.wav")
 const HITMARKER := preload("res://audio/sfx/hitmarker.wav")
 
+## Ambience beds. These loop seamlessly by construction rather than by
+## crossfading — see `looping_noise` in tools/make_sfx.py — so they can be left
+## running for a whole match without the loop point ever announcing itself.
+const AMBIENT_WIND := preload("res://audio/ambience/ambient_wind.wav")
+const AMBIENT_FOREST := preload("res://audio/ambience/ambient_forest.wav")
+
 const BUSES := {
 	"volume_master": "Master",
 	"volume_music": "Music",
