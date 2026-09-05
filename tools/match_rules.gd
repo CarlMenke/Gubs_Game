@@ -37,9 +37,23 @@ func _ready() -> void:
 	_run_time_limit()
 	_run_void_credit()
 	_run_spawn_protection()
+	_run_config_validation()
 
 	print("match_rules: %d checks, %d failures" % [_checks, _failures])
 	print("match_rules: %s" % ("PASS" if _failures == 0 else "FAIL"))
+	# Free the Gubs the scenarios spawned before quitting: Godot reports
+	# anything still in the tree at exit as a leak, and a harness that prints
+	# PASS above a wall of warnings teaches people to ignore warnings.
+	# queue_free lands at the end of a frame and the corpses and spears take
+	# another to unwind, hence the wait.
+	#
+	# A dozen or so still get reported and always will — they are the `preload`
+	# constants on the item and audio scripts, which are alive for as long as
+	# the scripts are. Nothing here can release those, so the count never quite
+	# reaches zero.
+	MatchState.reset()
+	for i in 4:
+		await get_tree().process_frame
 	get_tree().quit(1 if _failures > 0 else 0)
 
 
@@ -299,3 +313,72 @@ func _run_spawn_protection() -> void:
 	_kill(901, 1)
 	_check("and it dies once protection lapses", MatchState.is_alive(901), false)
 	_check("paying the killer", MatchState.kills(1), 1)
+
+
+func _run_config_validation() -> void:
+	_scenario("config arriving off the wire")
+	# `apply_dict` is the deserialiser for host-controlled match settings, so
+	# everything it reads is attacker-controlled on a client. It is the one
+	# place in this codebase where a hostile peer gets to set a value directly,
+	# which is why it clamps rather than trusts — see the header of
+	# match_config.gd for why a Dictionary crosses the wire and not a Resource.
+	var config := MatchConfig.new()
+
+	config.apply_dict({"kill_limit": 9999, "lives": -40, "team_count": 500})
+	_check("an absurd kill limit is clamped", config.kill_limit, 50)
+	_check("a negative life count is clamped", config.lives, 1)
+	_check("team count is clamped", config.team_count, 8)
+
+	# An out-of-range enum would index past the end of whatever switches on it.
+	config.apply_dict({"mode": 9999, "win_condition": -3})
+	_check("mode stays a real mode", config.mode, MatchConfig.Mode.TEAMS)
+	_check("win condition stays real", config.win_condition,
+		MatchConfig.WinCondition.KILL_LIMIT)
+
+	# Wrong types are dropped, not coerced into nonsense.
+	var before := config.spear_recharge
+	config.apply_dict({"spear_recharge": "very fast", "friendly_fire": "yes"})
+	_check("a string cannot become a float", config.spear_recharge, before)
+	_check("a string cannot become a bool", config.friendly_fire, false)
+
+	# Ints and floats are interchangeable often enough to be worth coercing.
+	config.apply_dict({"spear_recharge": 4})
+	_check("an int becomes a float", config.spear_recharge, 4.0)
+
+	config.apply_dict({"not_a_field": 12, "kill_limit": 7})
+	_check("unknown keys are ignored", config.kill_limit, 7)
+
+	var kept := config.lives
+	config.apply_dict({"kill_limit": 8})
+	_check("missing keys keep their value", config.lives, kept)
+
+	# A timed match with no clock would never end.
+	config.apply_dict({"win_condition": MatchConfig.WinCondition.TIME_ONLY,
+		"time_limit": 0})
+	_check("a timed match gets a clock", config.time_limit > 0, true)
+
+	# Regression guard: lure_fuse defaulted to 0.35 while its own range started
+	# at 0.5, so every fresh config was silently raised and the declared default
+	# was never the value anyone played with.
+	var fresh := MatchConfig.new()
+	var default_fuse := fresh.lure_fuse
+	fresh.apply_dict({})
+	_check("every default survives its own clamp", fresh.lure_fuse, default_fuse)
+
+	# Whatever a host sets must arrive unchanged at the far end.
+	var host := MatchConfig.new()
+	host.mode = MatchConfig.Mode.TEAMS
+	host.kill_limit = 23
+	host.friendly_fire = true
+	host.map_seed = 987654
+	host.lure_radius = 12.5
+	var arrived := MatchConfig.new()
+	arrived.apply_dict(host.to_dict())
+	_check("mode survives the trip", arrived.mode, host.mode)
+	_check("kill limit survives", arrived.kill_limit, host.kill_limit)
+	_check("friendly fire survives", arrived.friendly_fire, host.friendly_fire)
+	_check("the map seed survives", arrived.map_seed, host.map_seed)
+	_check("floats survive", arrived.lure_radius, host.lure_radius)
+
+	var copy := host.duplicate_config()
+	_check("duplicate_config matches", copy.to_dict(), host.to_dict())
