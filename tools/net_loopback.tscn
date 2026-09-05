@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bgubnetloopback"]
+
+[ext_resource type="Script" path="res://tools/net_loopback.gd" id="1"]
+
+[node name="NetLoopback" type="Node"]
+script = ExtResource("1")
