@@ -47,6 +47,10 @@ func _ready() -> void:
 
 	if _drive.is_empty():
 		SceneFlow.recapture_cursor("sandbox")
+	else:
+		# The Gub reads the keyboard itself now, and in a scripted snapshot run
+		# the keyboard is empty — which would zero the pose being driven below.
+		_gub.reads_local_input = false
 
 
 func _physics_process(_delta: float) -> void:

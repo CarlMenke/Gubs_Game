@@ -29,10 +29,13 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 - [x] 1.6  `MatchConfig` resource — mode, limits, timers, cooldowns, friendly fire
 - [x] 1.7  Scene flow — Menu → Lobby → Game → Results → Lobby
 - [~] 1.8  Robust disconnect handling — host leaves and client drops are done and
-           tested (a dropped peer's Gub is freed on every machine and the win check
-           re-runs, so a lives match can still end). **Mid-match join as spectator
-           is not**: a late joiner has no way to be told about Gubs that already
-           exist, so it needs a world-state sync on join. See docs/STATUS.md.
+           now proven over a real socket by `tools/net_test.sh`: a dropped peer's
+           Gub is freed on every machine and the win check re-runs, so a lives
+           match can still end. **Mid-match join as spectator is not**: a late
+           joiner is never told about Gubs that already exist, because
+           `_create_gub` is broadcast once at spawn time. It needs a
+           world-state-on-join message. The UI's response to a mid-match
+           disconnect has still only been seen in a harness.
 
 ## Phase 2 — The Gub (character)
 
@@ -56,7 +59,7 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 - [x] 3.5  Mushroom shield — deployed in front of the Gub, blocks spears, timed/HP, cooldown
 - [x] 3.6  Lure — thrown, arms on landing, briefly yanks nearby Gubs in and holds them
 - [x] 3.7  Death & respawn — spawn points, spawn protection, fall-off-island death
-- [x] 3.8  Feedback — sounds, hitmarker, camera shake, kill feed (6.3)
+- [x] 3.8  Feedback — sounds, hitmarker, camera shake and kill feed (6.3)
 
 ## Phase 4 — The map (Whisperbloom Hollow)
 
@@ -69,7 +72,11 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 - [x] 4.7  WorldEnvironment — volumetric fog, glow, SSAO, tonemap, colour grade
 - [x] 4.8  Ambience VFX — fireflies, drifting spores, wind-swayed foliage, falling leaves
 - [x] 4.9  Ambient audio — forest loop, wind, water
-- [x] 4.10 Spawn points + traversal pass (scale, sightlines, cover balance)
+- [~] 4.10 Spawn points + traversal pass (scale, sightlines, cover balance)
+           *8 spawns solved and placed, and the stone paths are a traversal pass
+           made visible — but no one has walked the map. Two pads can also end up
+           ~3.8 m apart on the default seed; the ring solver enforces slope and
+           landmark clearance but not separation between pads.*
 
 ## Phase 5 — Match rules
 
@@ -84,8 +91,11 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 - [x] 6.1  HUD — crosshair, ability cooldowns, score, timer, lives
 - [x] 6.2  Scoreboard (hold Tab)
 - [x] 6.3  Kill feed
-- [x] 6.4  Pause & settings — sensitivity, FOV, volume, quality preset, keybinds
-- [x] 6.5  Spectator camera
+- [~] 6.4  Pause & settings — sensitivity, FOV, volume, quality preset, keybinds
+           *all of it except keybinds, which are shown as a reference and cannot
+           be rebound*
+- [x] 6.5  Spectator camera — a dead or eliminated player follows whoever is
+           still alive, and cycles with the mouse buttons
 - [x] 6.6  Scene transitions / loading
 - [x] 6.7  Chat (lobby + in-match)
 

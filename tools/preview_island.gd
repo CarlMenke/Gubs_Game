@@ -68,10 +68,18 @@ func _ready() -> void:
 
 	_arena = ARENA.instantiate() as Arena
 	# This tool exists to judge the island, and a crosshair and a kill feed over
-	# the shot are in the way of that — so the HUD is off unless asked for. Set
-	# before `add_child`, because the HUD is built in the arena's own `_ready`.
-	# `hud` turns it back on, which is the only way to see the two together.
-	_arena.show_hud = _flags.has("hud")
+	# the shot are in the way of that — so the HUD comes out unless `hud` asks
+	# for it, which is the only way to see the two together.
+	#
+	# `free()` rather than `queue_free()`, and before `add_child` rather than
+	# after: the HUD takes the mouse in its own `_ready` (that is its job — see
+	# `hud.gd`), and a node that never enters the tree never runs one. Deferring
+	# it would capture the cursor for a frame in the middle of a screenshot.
+	if not _flags.has("hud"):
+		var hud := _arena.get_node_or_null("HUD")
+		if hud != null:
+			_arena.remove_child(hud)
+			hud.free()
 	add_child(_arena)
 
 	_apply_diagnostics()

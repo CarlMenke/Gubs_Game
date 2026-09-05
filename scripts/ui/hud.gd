@@ -62,8 +62,14 @@ var _flash: float = 0.0
 
 func _ready() -> void:
 	layer = 8
-	# The match owns the mouse. Anything that wants it back asks by name.
-	SceneFlow.recapture_cursor("hud")
+	# The match owns the mouse. This used to say `recapture_cursor("hud")`, which
+	# could never work: the HUD has no hold of its own to give back, and the
+	# holds that actually mattered were taken by the menu and the lobby. Entering
+	# the arena means nothing that wants the cursor is on screen any more, so say
+	# that directly. `SceneFlow.go_to` also clears on the way in; this covers the
+	# testbeds, which stand the arena up without ever going through it.
+	# Anything that wants the cursor back from here asks by name.
+	SceneFlow.clear_cursor_holds()
 
 	_chat.compact = true
 	_chat.submitted.connect(Net.send_chat)

@@ -18,13 +18,17 @@ extends RefCounted
 ##
 ## These are the beds `tools/make_sfx.py` synthesises — 12 s of wind and 16 s of
 ## forest, each seamless by construction rather than by crossfade, so they can
-## run for a whole match without the loop point ever announcing itself.
+## run for a whole match without the loop point ever announcing itself. They are
+## the same two files `AudioDirector` holds, named by path here rather than
+## through it so that a `--script` tool loading this file does not need the
+## autoload (D-015).
 ##
 ## The paths here were guessed (`assets/audio/ambience/*.ogg`) on the branch this
 ## file was written on, while the branch that produced the audio committed it to
-## `audio/ambience/*.wav`. `_build_audio` skips a missing file in silence, so the
-## island shipped with no ambience at all and nothing said so. Naming the real
-## files is the entire fix; the machinery below was always finished.
+## `audio/ambience/*.wav`. `_build_audio` skips a missing file in silence, which
+## is right for an optional asset and wrong for a typo — so the island shipped
+## with no ambience at all and nothing said so. Naming the real files was the
+## entire fix; the machinery below was always finished.
 const LOOPS := {
 	"forest": "res://audio/ambience/ambient_forest.wav",
 	"wind": "res://audio/ambience/ambient_wind.wav",

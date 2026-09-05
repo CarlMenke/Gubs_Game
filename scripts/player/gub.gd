@@ -101,9 +101,16 @@ var alive: bool = true
 ## Set while the round is starting or just after a respawn; blocks damage.
 var invulnerable_until: float = 0.0
 
+## Movement intent for this frame. Filled from the keyboard in `_read_input`
+## when this Gub is the local one, and set directly by the testbeds that script
+## a Gub through a pose — see `reads_local_input`.
 var input_direction: Vector2 = Vector2.ZERO
 var wants_sprint: bool = false
 var wants_crouch: bool = false
+## False on a Gub whose movement is being driven by something other than the
+## player: `tools/sandbox.gd` walks one through scripted poses for a snapshot,
+## and reading an empty keyboard over the top of that would zero it every frame.
+var reads_local_input: bool = true
 var body_yaw: float = 0.0
 
 var _coyote: float = 0.0
@@ -154,12 +161,17 @@ func _equip_spear() -> void:
 
 
 func is_local() -> bool:
-	# `is_multiplayer_authority()` asks the SceneTree's multiplayer for its unique
-	# id, and with no peer set that is an error — printed once per Gub per frame.
-	# A Gub outlives its session by the moment between `Net.leave_lobby()` and the
-	# scene actually changing, and in that gap this used to fill the log with
-	# hundreds of lines of stack trace. Nobody owns a Gub in a session that does
-	# not exist, so the honest answer there is false.
+	# `is_multiplayer_authority()` asks the peer for its own id, and there is a
+	# window every time a match ends where there is no peer to ask: leaving nulls
+	# `multiplayer.multiplayer_peer` immediately, and `SceneFlow` then fades for
+	# FADE_OUT seconds before the arena is freed. Every Gub still in the tree is
+	# processed through those frames — this one, its animator and its combat all
+	# ask — which is thirteen frames of engine errors on the way out of every
+	# match. `Net.local_id` already guards the same call the same way.
+	#
+	# Nothing is locally controlled in a session that has ended, so the honest
+	# answer is no: movement and input stop, and anything reading through
+	# `is_grounded`/`is_sliding` falls back to the last synced values.
 	if multiplayer.multiplayer_peer == null:
 		return false
 	return is_multiplayer_authority()
@@ -180,6 +192,7 @@ func _physics_process(delta: float) -> void:
 		_publish()
 		return
 
+	_read_input()
 	_tick_timers(delta)
 	_apply_gravity(delta)
 	_handle_slide(delta)
@@ -197,6 +210,34 @@ func _physics_process(delta: float) -> void:
 
 	_face(delta)
 	_publish()
+
+
+# ------------------------------------------------------------------- input ---
+
+## The keyboard half of a Gub. The mouse half lives in `GubCamera`, and the
+## ability keys in `GubCombat`, which reads them exactly like this.
+##
+## This belongs on the Gub rather than on whatever scene is hosting it. It used
+## to live only in `tools/combat_range.gd` and `tools/sandbox.gd`, which meant
+## every testbed could be walked around and the actual game could not: the arena
+## had nothing playing the part those two were playing, so `input_direction`
+## stayed at zero for the whole match while the abilities — which do read their
+## own keys — worked perfectly, and made it look like input was fine.
+func _read_input() -> void:
+	if not reads_local_input:
+		return
+	# Typing in chat, or reading the scoreboard, is not walking into a wall.
+	if SceneFlow.cursor_is_free():
+		input_direction = Vector2.ZERO
+		wants_sprint = false
+		wants_crouch = false
+		return
+	input_direction = Input.get_vector("move_left", "move_right",
+		"move_forward", "move_back")
+	wants_sprint = Input.is_action_pressed("sprint")
+	wants_crouch = Input.is_action_pressed("crouch")
+	if Input.is_action_just_pressed("jump"):
+		request_jump()
 
 
 # ------------------------------------------------------------------ motion ---

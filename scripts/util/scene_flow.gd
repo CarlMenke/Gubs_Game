@@ -93,9 +93,24 @@ func go_to(path: String, loading_title: String = "", loading_hint: String = "") 
 		return
 
 	current_scene_path = path
+
+	# A hold belongs to the scene that took it, and that scene is being freed
+	# right now. Dropping the holds here is what makes the set mean "UI that is
+	# on screen" rather than "UI that ever asked for the cursor". Without it the
+	# menu's hold and the lobby's hold both survive into the match — neither
+	# screen has anywhere to give them back — the set is never empty, and the
+	# game runs with a free cursor and no mouse-look at all.
+	#
+	# Cleared silently: the new scene states what it needs in its own `_ready`,
+	# which runs after this, and applying a capture mid-fade would warp the
+	# pointer for one frame on the way into every menu.
+	_cursor_holds.clear()
+
 	# One frame for the new tree to be built before it becomes visible.
 	await get_tree().process_frame
 	_hide_loading()
+	# ...and now the new scene has spoken, so the mode can follow the holds.
+	_apply_cursor()
 	await _fade_to(0.0, FADE_IN)
 	_busy = false
 	scene_ready.emit(path)

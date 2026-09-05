@@ -27,13 +27,6 @@ extends Node3D
 ## and therefore already on every machine before this scene loads (D-007).
 
 const ENVIRONMENT := "res://resources/config/arena_env.tres"
-## The match HUD. `hud.gd` reaches into no arena node and holds no reference to
-## one — everything it draws comes from `MatchState`, `Net` and the local Gub —
-## so instancing it here is the whole of the wiring. It was built on a separate
-## branch from this scene and nothing had ever put the two together, which is
-## why every match before this one ran with no crosshair, no score and no way
-## to open the pause menu.
-const HUD_SCENE := preload("res://scenes/ui/hud.tscn")
 
 ## D-009: the sky shader draws the moon at `LIGHT0_DIRECTION`, so this
 ## DirectionalLight3D *is* the moon. Changing where it points moves the moon in
@@ -56,10 +49,6 @@ const SPAWN_RIM_MARGIN := 4.0
 ## Gubs are spawned a few centimetres up so the capsule settles onto the ground
 ## rather than starting the match intersecting it.
 const SPAWN_LIFT := 0.12
-
-## Off for `tools/preview_island.tscn`, which loads this exact scene to judge the
-## map and does not want a crosshair over the shot. Set before `add_child`.
-@export var show_hud: bool = true
 
 var island: IslandGenerator
 var landmarks: Landmarks
@@ -103,12 +92,6 @@ func _ready() -> void:
 		scatter.instances, scatter.triangles / 1000, spawn_points.size(),
 		$Torches.get_child_count()])
 	print("  scatter %s" % scatter.counts)
-
-	# Before the handover, not after: the HUD subscribes to `phase_changed` in
-	# its own `_ready`, and `register_arena` is the call that starts the warmup
-	# and emits it. Built the other way round the opening countdown never shows.
-	if show_hud:
-		add_child(HUD_SCENE.instantiate())
 
 	# The handover. Every peer calls this for itself; only the host acts on it,
 	# and it is what starts the warmup.

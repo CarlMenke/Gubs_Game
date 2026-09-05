@@ -28,11 +28,26 @@ godot --path .            # or open project.godot in the editor
 **It has to be 4.7.** Godot 4.6 does not politely refuse this project — it fails
 to parse it, with a wall of `Too many arguments for "add_blend_point()"` that
 reads exactly like a bug in this repository and is not one. That method gained a
-fourth argument in 4.7. The scripts below find the engine themselves and reject a
-4.6 binary rather than running it, but if you are invoking Godot by hand, check
-`--version` first.
+fourth argument in 4.7. The scripts below reject a 4.6 binary rather than running
+it, but if you are invoking Godot by hand, check `--version` first.
 
-Godot is not on `PATH` on either of the machines this is developed on:
+On Windows, `run.bat` does the same thing without you typing the path to Godot:
+
+```
+run.bat
+```
+
+`tools/smoke_test.sh` finds the binary itself — it searches `$GODOT`, then
+`PATH`, then `/Applications` and Downloads under `$HOME`, `$USERPROFILE` and
+every Windows user profile it can see, because `$HOME` is not the Windows
+profile under every bash on Windows. It also runs under WSL, where it translates
+the project path with `wslpath` first: Git Bash converts POSIX paths on the way
+into a native binary and WSL does not, so an untranslated `/mnt/c/...` reaches
+Godot as a path it cannot read.
+
+For the other commands here, set it yourself. Godot is on `PATH` on none of the
+machines this is developed on, and note that **the `.exe` in the Windows download
+path is a directory**, not the binary — which catches everyone once:
 
 ```bash
 # macOS — note that /Applications/Godot.app may well be an older one
@@ -109,17 +124,30 @@ bash tools/smoke_test.sh
 ```
 
 Everything that can be checked without a person watching: the headless import,
-the invite codes, the match rules, **a full playthrough from the main menu to the
-results screen**, a ragdoll that has to survive hitting the ground, and the three
-combat modes that report what they did. Seven checks, about two minutes. It finds
-Godot by itself. Run it before committing anything that touches gameplay.
+the invite codes, the match rules, **a full playthrough from the main menu to
+the results screen**, a ragdoll that has to survive hitting the ground, three
+combat modes that report what they did, and three checks that walk the path a
+player walks — that holding W moves a Gub, that starting a match takes the
+mouse, and that leaving one does not leave Gubs asking a peer that is gone. Ten
+in all. Run it before committing anything that touches gameplay.
 
-The playthrough is the one that earns its keep. Every other check looks at a
-single seam; only that one walks the joins between them, and the first time it
-ran it found a hang that would have shipped.
+Most of those exist because of one bug shape, met repeatedly: **a thing wired
+into a testbed and into nothing else.** `tools/` scenes stand their subject up
+directly and hand it whatever the real scene was meant to hand it, which makes
+them very good at proving a feature works and blind to whether anything calls
+it. Nothing read the movement keys in a real match; nothing instanced the HUD in
+the arena; the ambience pointed at a path that never existed. All three passed
+every check that existed at the time.
+
+So: **if you add a harness, ask what it is supplying by hand** — that list is
+the list of things nothing else is checking. And `playthrough` is the one that
+catches the rest, because it is the only check that walks the joins between the
+parts rather than testing inside one.
 
 It fails on any `SCRIPT ERROR` as well as on a bad exit code, because Godot
-prints one and carries straight on — a clean exit proves nothing by itself.
+prints one and carries straight on — a clean exit proves nothing by itself. It
+fails the same way on `No multiplayer peer is assigned`, which is always a bug
+and never noise, wherever in the suite it turns up.
 
 What it **cannot** do is tell you whether anything looks right. That needs eyes,
 and `tools/` is full of scenes for it:

@@ -9,16 +9,51 @@ Last updated: 2026-09-04.
 
 ## The short version
 
-**`main` has everything. There are no unmerged branches.** `feat/island` and
-`feat/ui` are merged and can be deleted. The game runs from the main menu
-through a lobby into a real match on a real island and out to a results screen,
-and there is now an automated check that walks exactly that path.
+This branch, `feat/complete-game`, is the consolidation of **two independent
+integrations of the same two feature branches**, done in parallel without either
+knowing about the other. Both merged `feat/island` and `feat/ui`; both then went
+looking for what the merge had broken, and they found overlapping but different
+sets of it. Everything from both is here.
+
+The game runs from the main menu through a lobby into a real match on a real
+island and out to a results screen, and two automated checks now walk that path:
+one in a single process, one across two processes over a real socket.
 
 ```
-bash tools/smoke_test.sh        # 7 checks, ~2 minutes, finds Godot by itself
+bash tools/smoke_test.sh        # 10 checks, ~2 minutes, finds Godot by itself
+bash tools/net_test.sh          # two processes, one socket. Not in the gate
 ```
 
-That is the gate. It passes.
+`smoke_test.sh` is the gate and it passes.
+
+### What the two integrations each found
+
+Worth reading as a list, because they are all the same shape and the next one
+will be too — **a thing wired into a testbed and into nothing else**:
+
+- Nothing in a real match **read the movement keys**. `Gub` exposed
+  `input_direction` and nothing filled it; both testbeds had their own reader,
+  so WASD worked everywhere except in the game. Abilities worked, because
+  `GubCombat` reads its own input inside the Gub scene — which is what made it
+  look like input was fine.
+- The arena **never instanced the HUD**, so a match had no crosshair, no score,
+  no scoreboard, no pause menu and no results screen.
+- Entering a match **never took the mouse**. The menu and the lobby each take a
+  cursor hold and neither gives it back, so mouse-look and throwing — both gated
+  on `SceneFlow.cursor_is_free()` — were dead.
+- The **ambient loops pointed at a path that never existed**. A missing optional
+  asset is skipped in silence by design, which is right for an absent file and
+  wrong for a typo, so the island shipped with no ambience and nothing said so.
+- The **kill feed hung the game on the sixth death of every match** —
+  `queue_free()` inside `while get_child_count() > MAX_ROWS`, and `queue_free`
+  defers, so the count never fell. 100% CPU, no error, no output.
+
+Every one of those passed all the checks that existed when it was written.
+`tools/playthrough.tscn` and `tools/cursor_flow.tscn` exist so that the next one
+does not.
+
+**If you add a harness, ask what it is supplying by hand.** That list is the list
+of things nothing else is checking.
 
 ---
 
@@ -125,7 +160,8 @@ Three tiers, because three different kinds of claim need three different proofs
 
 | tool | proves |
 |---|---|
-| `tools/smoke_test.sh` | **the gate** — import, and the six checks below |
+| `tools/smoke_test.sh` | **the gate** — import, and ten checks |
+| `tools/cursor_flow.tscn` | entering a match takes the mouse, and leaving gives it back |
 | `tools/playthrough.tscn` | the whole path, menu to results, 39 assertions |
 | `tools/match_rules.tscn` | 60 assertions across 9 scoring scenarios |
 | `tools/invite_codes.tscn` | 2619 assertions over 1296 endpoints |
@@ -207,8 +243,14 @@ and the tool quietly uses its defaults. Pass them literally.
 
 ## Git
 
-`main` is the only branch that matters and holds everything. `feat/island` and
-`feat/ui` are merged and can be deleted, locally and on the remote:
+This work is on **`feat/complete-game`**, not on `main`, because a second
+integration of the same two branches landed on `main` while this one was being
+done. This branch contains `origin/main` as an ancestor — the merge that brought
+it in is where the two were reconciled, and its message records every decision
+that needed one. Merging this into `main` should therefore be clean.
+
+`feat/island` and `feat/ui` are ancestors of both and can be deleted once this
+lands:
 
 ```bash
 git push origin --delete feat/island feat/ui

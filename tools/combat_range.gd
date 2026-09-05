@@ -40,8 +40,23 @@ const DUMMY_BASE := 900
 ##              can actually be dragged — see `lure_self`.
 ##   lure_self— a lure dropped at the player's own feet, which is the only way
 ##              to watch the pull actually move a Gub in a one-client testbed
+##   walk     — holds W for a second and requires the Gub to have gone somewhere.
+##              Trivial-looking, and it is here because movement was wired up in
+##              this file and in the sandbox and nowhere else, so every testbed
+##              could be walked around while the actual game could not.
+##   leave    — tears the session down out from under a live Gub and keeps
+##              ticking, which is what leaving a match actually does: `Net`
+##              nulls the multiplayer peer and `SceneFlow` then fades for 0.22 s
+##              before the arena is freed, so every Gub in the tree spends those
+##              frames still being processed with no peer to ask.
 ##   free     — no script; play it yourself
-const MODES := ["flight", "hit", "arc", "miss", "mushroom", "lure", "lure_self", "free"]
+const MODES := ["flight", "hit", "arc", "miss", "mushroom", "lure", "lure_self",
+	"walk", "leave", "free"]
+
+## How far the `walk` mode requires the Gub to travel. A Gub that is not walking
+## still drifts a little as it settles onto the ground on the first few frames,
+## and this is comfortably clear of that.
+const WALK_MIN_DISTANCE := 1.0
 
 ## Every scripted mode is watched from the touchline. The thrower's own camera
 ## looks *along* the throw, where the spear is a dot behind the Gub's head and a
@@ -72,6 +87,8 @@ var _mode: String = "free"
 var _trace: bool = false
 var _pov: bool = false
 var _frames: int = 0
+## Where the `walk` mode started measuring from.
+var _walk_from: Vector3 = Vector3.ZERO
 var _acted: bool = false
 var _items: Node3D
 var _players: Node3D
@@ -207,7 +224,15 @@ func _physics_process(_delta: float) -> void:
 	if _trace:
 		_trace_frame()
 	if _mode == "free":
-		_read_input()
+		# No input reading here any more: `Gub._read_input` does it, for the
+		# local Gub, in the game and in this testbed alike. That it only ever
+		# happened here is what left the real arena unwalkable.
+		return
+	if _mode == "walk":
+		_drive_walk()
+		return
+	if _mode == "leave":
+		_drive_leave()
 		return
 
 	var player := MatchState.gubs.get(1) as Gub
@@ -304,16 +329,52 @@ func _trace_frame() -> void:
 			_frames, spear.global_position, spear.is_stuck(), spear.authoritative])
 
 
-func _read_input() -> void:
-	var player := MatchState.gubs.get(1) as Gub
-	if player == null or not player.is_local():
+## Pull the peer out from under a live Gub and keep processing it.
+##
+## `announce` is false so that `left_lobby` does not fire and navigate this
+## testbed away: the point is to hold the game in the state it is in during the
+## fade, with Gubs still in the tree and `multiplayer.multiplayer_peer` already
+## null, and keep ticking them there.
+func _drive_leave() -> void:
+	if _frames == 30:
+		Net.leave_lobby(Net.Leave.LOCAL_REQUEST, "", false)
 		return
-	player.input_direction = Input.get_vector("move_left", "move_right",
-		"move_forward", "move_back")
-	player.wants_sprint = Input.is_action_pressed("sprint")
-	player.wants_crouch = Input.is_action_pressed("crouch")
-	if Input.is_action_just_pressed("jump"):
-		player.request_jump()
+	if _frames < 90:
+		return
+	print("combat_range: ticked %d frames after teardown — leave PASS" % 60)
+	get_tree().quit()
+
+
+## Hold W for a second and see whether the Gub went anywhere.
+##
+## `Input.action_press` is a real press as far as everything downstream is
+## concerned, so this exercises the same path a player does: `Gub._read_input`
+## reads the action, fills `input_direction`, and `_handle_movement` does the
+## rest. Nothing here touches `input_direction` itself — that would test the
+## movement code while skipping the wiring that was actually missing.
+func _drive_walk() -> void:
+	var player := MatchState.gubs.get(1) as Gub
+	if player == null:
+		return
+
+	# Let it settle onto the ground before the start position is taken.
+	if _frames < 20:
+		return
+	if _frames == 20:
+		_walk_from = player.global_position
+		Input.action_press("move_forward")
+		return
+	if _frames < 80:
+		return
+
+	Input.action_release("move_forward")
+	var travelled := player.global_position.distance_to(_walk_from)
+	if travelled >= WALK_MIN_DISTANCE:
+		print("combat_range: walked %.2f m — walk PASS" % travelled)
+	else:
+		print("combat_range: walked %.2f m, wanted %.2f — walk FAIL"
+			% [travelled, WALK_MIN_DISTANCE])
+	get_tree().quit()
 
 
 func _unhandled_input(event: InputEvent) -> void:
