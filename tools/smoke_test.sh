@@ -17,18 +17,78 @@
 
 set -uo pipefail
 
-GODOT="${GODOT:-$HOME/Downloads/Godot_v4.7.2-stable_win64.exe/Godot_v4.7.2-stable_win64_console.exe}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_DIR="${TMPDIR:-/tmp}/gub_smoke"
 
 failures=0
 checks=0
 
-if [ ! -x "$GODOT" ]; then
-    echo "smoke: cannot find the Godot binary at:"
-    echo "       $GODOT"
+# Finding Godot is the one thing this script cannot assume. It is not on PATH on
+# any machine this has run on; the download unpacks into a *directory* whose name
+# ends in `.exe`, with the real binary inside it; and `$HOME` is not the Windows
+# profile under every bash on Windows — Git Bash from the Start menu, a bash
+# started from cmd, and WSL can all disagree about it, which is exactly how this
+# went wrong once already. So look in every plausible place, in order, and say
+# where you looked if none of them has it.
+# Captured before the search clears $GODOT below, so an explicit setting is not
+# quietly overwritten by the value the search finds.
+GODOT_REQUESTED="${GODOT:-}"
+
+# An explicit setting is a claim, not a hint: if it is wrong, say so rather than
+# searching on and running a different binary than the one that was asked for.
+if [ -n "$GODOT_REQUESTED" ] && { [ ! -x "$GODOT_REQUESTED" ] || [ -d "$GODOT_REQUESTED" ]; }; then
+    echo "smoke: GODOT is set to something that is not an executable:"
+    echo "       $GODOT_REQUESTED"
+    echo "       (The '.exe' in the download's path is a directory, not the"
+    echo "       binary — the binary is the _console.exe inside it.)"
+    exit 2
+fi
+
+godot_candidates() {
+    [ -n "$GODOT_REQUESTED" ] && printf '%s\n' "$GODOT_REQUESTED"
+    command -v godot 2>/dev/null
+
+    local roots=("$HOME")
+    # $USERPROFILE is the Windows profile under Git Bash: C:\Users\name.
+    if [ -n "${USERPROFILE:-}" ]; then
+        if command -v cygpath >/dev/null 2>&1; then
+            roots+=("$(cygpath -u "$USERPROFILE")")
+        else
+            roots+=("$(printf '%s' "$USERPROFILE" | sed 's|\|/|g; s|^\([A-Za-z]\):|/\1|')")
+        fi
+    fi
+    # WSL mounts the Windows drives under /mnt; a bash from cmd may see /c.
+    local d
+    for d in /mnt/c/Users/* /c/Users/*; do
+        [ -d "$d/Downloads" ] && roots+=("$d")
+    done
+
+    local root
+    for root in "${roots[@]}"; do
+        # The unpacked-directory layout first, then a bare binary beside it.
+        printf '%s\n' "$root"/Downloads/Godot_v*_win64.exe/Godot_v*_win64_console.exe
+        printf '%s\n' "$root"/Downloads/Godot_v*_win64_console.exe
+        printf '%s\n' "$root"/Downloads/Godot_v*_win64.exe
+    done
+}
+
+GODOT=""
+while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    # An unmatched glob comes back as its own pattern, and the download's outer
+    # `.exe` is a directory; -x with a -d check rejects both.
+    if [ -x "$candidate" ] && [ ! -d "$candidate" ]; then
+        GODOT="$candidate"
+        break
+    fi
+done < <(godot_candidates)
+
+if [ -z "$GODOT" ]; then
+    echo "smoke: cannot find the Godot binary. Looked on PATH, and under"
+    echo "       Downloads in: $HOME${USERPROFILE:+, $USERPROFILE}"
     echo "       Set GODOT=/path/to/Godot_console.exe and try again."
-    echo "       (Note the '.exe' in the default path is a directory, not the binary.)"
+    echo "       (Note the '.exe' in the download's path is a directory, not the"
+    echo "       binary — the binary is the _console.exe inside it.)"
     exit 2
 fi
 
