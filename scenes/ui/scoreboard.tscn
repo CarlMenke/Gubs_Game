@@ -1,0 +1,116 @@
+[gd_scene load_steps=2 format=3 uid="uid://gubscoreboard01"]
+
+[ext_resource type="Script" path="res://scripts/ui/scoreboard.gd" id="1_script"]
+
+[node name="Scoreboard" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_script")
+
+[node name="Scrim" type="ColorRect" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.008, 0.012, 0.02, 0.62)
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Card" type="PanelContainer" parent="Center"]
+custom_minimum_size = Vector2(1020, 0)
+layout_mode = 2
+theme_type_variation = &"CardPanel"
+
+[node name="Body" type="VBoxContainer" parent="Center/Card"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Header" type="HBoxContainer" parent="Center/Card/Body"]
+layout_mode = 2
+theme_override_constants/separation = 22
+
+[node name="Title" type="Label" parent="Center/Card/Body/Header"]
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"HeadLabel"
+text = "STANDINGS"
+
+[node name="Spacer" type="Control" parent="Center/Card/Body/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Summary" type="Label" parent="Center/Card/Body/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"AccentLabel"
+text = "Free-for-all"
+
+[node name="Clock" type="Label" parent="Center/Card/Body/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"ReadoutLabel"
+text = "10:00"
+
+[node name="Rule" type="HSeparator" parent="Center/Card/Body"]
+layout_mode = 2
+
+[node name="ColumnHeadings" type="HBoxContainer" parent="Center/Card/Body"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Pad" type="Control" parent="Center/Card/Body/ColumnHeadings"]
+custom_minimum_size = Vector2(17, 0)
+layout_mode = 2
+
+[node name="PlayerHeading" type="Label" parent="Center/Card/Body/ColumnHeadings"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"SectionLabel"
+text = "GUB"
+
+[node name="KillsHeading" type="Label" parent="Center/Card/Body/ColumnHeadings"]
+custom_minimum_size = Vector2(92, 0)
+layout_mode = 2
+theme_type_variation = &"SectionLabel"
+text = "KILLS"
+horizontal_alignment = 2
+
+[node name="DeathsHeading" type="Label" parent="Center/Card/Body/ColumnHeadings"]
+custom_minimum_size = Vector2(92, 0)
+layout_mode = 2
+theme_type_variation = &"SectionLabel"
+text = "DEATHS"
+horizontal_alignment = 2
+
+[node name="LivesHeading" type="Label" parent="Center/Card/Body/ColumnHeadings"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(92, 0)
+layout_mode = 2
+theme_type_variation = &"SectionLabel"
+text = "LIVES"
+horizontal_alignment = 2
+
+[node name="Rows" type="VBoxContainer" parent="Center/Card/Body"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 300)
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 3

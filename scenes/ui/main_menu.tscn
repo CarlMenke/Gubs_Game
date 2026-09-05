@@ -1,6 +1,245 @@
-[gd_scene format=3 uid="uid://bgubmainmenu0"]
+[gd_scene load_steps=9 format=3 uid="uid://bgubmainmenu0"]
 
-[node name="MainMenu" type="Control"]
+[ext_resource type="Script" path="res://scripts/ui/main_menu.gd" id="1_menu"]
+[ext_resource type="Script" path="res://scripts/ui/gub_backdrop.gd" id="2_backdrop"]
+[ext_resource type="Theme" path="res://resources/ui/gub_theme.tres" id="3_theme"]
+[ext_resource type="PackedScene" path="res://scenes/ui/settings_panel.tscn" id="4_settings"]
+
+[sub_resource type="Gradient" id="Gradient_side"]
+offsets = PackedFloat32Array(0, 0.42, 1)
+colors = PackedColorArray(0.008, 0.011, 0.018, 0.97, 0.008, 0.011, 0.018, 0.62, 0.008, 0.011, 0.018, 0)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_side"]
+gradient = SubResource("Gradient_side")
+width = 512
+height = 4
+
+[sub_resource type="Gradient" id="Gradient_foot"]
+offsets = PackedFloat32Array(0, 1)
+colors = PackedColorArray(0.008, 0.011, 0.018, 0, 0.008, 0.011, 0.018, 0.85)
+
+[sub_resource type="GradientTexture2D" id="GradientTexture2D_foot"]
+gradient = SubResource("Gradient_foot")
+width = 4
+height = 256
+fill_from = Vector2(0, 0)
+fill_to = Vector2(0, 1)
+
+[node name="MainMenu" type="Node3D"]
+script = ExtResource("1_menu")
+
+[node name="Backdrop" type="Node3D" parent="."]
+unique_name_in_owner = true
+script = ExtResource("2_backdrop")
+formation = 0
+glade_seed = 40219
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="Root" type="Control" parent="UI"]
+layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme = ExtResource("3_theme")
+
+[node name="SideScrim" type="TextureRect" parent="UI/Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = SubResource("GradientTexture2D_side")
+expand_mode = 1
+stretch_mode = 0
+
+[node name="FootScrim" type="TextureRect" parent="UI/Root"]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -210.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+texture = SubResource("GradientTexture2D_foot")
+expand_mode = 1
+stretch_mode = 0
+
+[node name="Column" type="MarginContainer" parent="UI/Root"]
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 112.0
+offset_right = 760.0
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Stack" type="VBoxContainer" parent="UI/Root/Column"]
+layout_mode = 2
+mouse_filter = 2
+alignment = 1
+
+[node name="Wordmark" type="VBoxContainer" parent="UI/Root/Column/Stack"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 2
+
+[node name="Title" type="Label" parent="UI/Root/Column/Stack/Wordmark"]
+layout_mode = 2
+theme_type_variation = &"DisplayLabel"
+theme_override_font_sizes/font_size = 148
+text = "GUB"
+
+[node name="Rule" type="ColorRect" parent="UI/Root/Column/Stack/Wordmark"]
+custom_minimum_size = Vector2(118, 3)
+layout_mode = 2
+size_flags_horizontal = 0
+color = Color(1, 0.64, 0.26, 1)
+
+[node name="Tagline" type="Label" parent="UI/Root/Column/Stack/Wordmark"]
+layout_mode = 2
+theme_type_variation = &"SectionLabel"
+theme_override_constants/line_spacing = 8
+text = "WHISPERBLOOM  HOLLOW"
+
+[node name="GapA" type="Control" parent="UI/Root/Column/Stack"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+mouse_filter = 2
+
+[node name="NameBlock" type="VBoxContainer" parent="UI/Root/Column/Stack"]
+layout_mode = 2
+size_flags_horizontal = 0
+mouse_filter = 2
+theme_override_constants/separation = 7
+
+[node name="NameCaption" type="Label" parent="UI/Root/Column/Stack/NameBlock"]
+layout_mode = 2
+theme_type_variation = &"SectionLabel"
+text = "YOU ARE"
+
+[node name="NameEdit" type="LineEdit" parent="UI/Root/Column/Stack/NameBlock"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(420, 0)
+layout_mode = 2
+max_length = 16
+placeholder_text = "Gub"
+caret_blink = true
+
+[node name="GapB" type="Control" parent="UI/Root/Column/Stack"]
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+mouse_filter = 2
+
+[node name="Nav" type="VBoxContainer" parent="UI/Root/Column/Stack"]
+custom_minimum_size = Vector2(420, 0)
+layout_mode = 2
+size_flags_horizontal = 0
+theme_override_constants/separation = 3
+
+[node name="HostButton" type="Button" parent="UI/Root/Column/Stack/Nav"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"NavButton"
+text = "HOST A GAME"
+alignment = 0
+
+[node name="JoinButton" type="Button" parent="UI/Root/Column/Stack/Nav"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"NavButton"
+text = "JOIN WITH A CODE"
+alignment = 0
+
+[node name="JoinPanel" type="MarginContainer" parent="UI/Root/Column/Stack/Nav"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/margin_left = 26
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_bottom = 10
+
+[node name="Row" type="HBoxContainer" parent="UI/Root/Column/Stack/Nav/JoinPanel"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="CodeEdit" type="LineEdit" parent="UI/Root/Column/Stack/Nav/JoinPanel/Row"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+max_length = 12
+placeholder_text = "XXXXX-XXXXX"
+caret_blink = true
+
+[node name="ConnectButton" type="Button" parent="UI/Root/Column/Stack/Nav/JoinPanel/Row"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"PrimaryButton"
+text = "Join"
+
+[node name="SettingsButton" type="Button" parent="UI/Root/Column/Stack/Nav"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"NavButton"
+text = "SETTINGS"
+alignment = 0
+
+[node name="QuitButton" type="Button" parent="UI/Root/Column/Stack/Nav"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"NavButton"
+text = "QUIT"
+alignment = 0
+
+[node name="GapC" type="Control" parent="UI/Root/Column/Stack"]
+custom_minimum_size = Vector2(0, 26)
+layout_mode = 2
+mouse_filter = 2
+
+[node name="Notice" type="PanelContainer" parent="UI/Root/Column/Stack"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(500, 0)
+layout_mode = 2
+size_flags_horizontal = 0
+theme_type_variation = &"CardPanel"
+
+[node name="Lines" type="VBoxContainer" parent="UI/Root/Column/Stack/Notice"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="NoticeTitle" type="Label" parent="UI/Root/Column/Stack/Notice/Lines"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"AccentLabel"
+text = "Notice"
+
+[node name="NoticeBody" type="Label" parent="UI/Root/Column/Stack/Notice/Lines"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"SmallLabel"
+text = "Body"
+autowrap_mode = 3
+
+[node name="Version" type="Label" parent="UI/Root"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 112.0
+offset_top = -56.0
+offset_right = 312.0
+offset_bottom = -30.0
+grow_vertical = 0
+theme_type_variation = &"TinyLabel"
+text = "v0.1.0"
+
+[node name="Settings" parent="UI/Root" instance=ExtResource("4_settings")]
+unique_name_in_owner = true
+layout_mode = 1
