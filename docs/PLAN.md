@@ -52,7 +52,7 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 - [x] 3.5  Mushroom shield — deployed in front of the Gub, blocks spears, timed/HP, cooldown
 - [x] 3.6  Lure — thrown, arms on landing, briefly yanks nearby Gubs in and holds them
 - [x] 3.7  Death & respawn — spawn points, spawn protection, fall-off-island death
-- [ ] 3.8  Feedback — kill feed, hitmarker, sounds, camera shake
+- [~] 3.8  Feedback — sounds, hitmarker and camera shake done; kill feed is 6.3
 
 ## Phase 4 — The map (Whisperbloom Hollow)
 

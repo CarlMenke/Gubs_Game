@@ -298,6 +298,7 @@ func _do_respawn(peer_id: int, spawn: Transform3D) -> void:
 	if combat != null:
 		combat.reset()
 	if peer_id == multiplayer.get_unique_id():
+		AudioDirector.play_2d(AudioDirector.RESPAWN)
 		local_respawn.emit()
 
 
@@ -350,11 +351,19 @@ func _apply_death(victim_id: int, killer_id: int, cause: Gub.Cause,
 				direction * 2.6 + Vector3.UP * 0.5, bone)
 		victim.visible = false
 
+	if is_instance_valid(victim):
+		AudioDirector.play_3d_varied(AudioDirector.DEATH, victim.global_position)
+
 	player_killed.emit(victim_id, killer_id, cause)
 	if victim_id == multiplayer.get_unique_id():
 		local_death.emit(config().respawn_delay)
 		_shake(victim, 1.4)
 	elif killer_id == multiplayer.get_unique_id():
+		# The hitmarker is the only confirmation a thrower gets that a spear
+		# landed: the victim may be sixty metres away and behind a tree, and the
+		# spear itself is gone. It is deliberately 2D — it is feedback about
+		# your own action, not a sound anyone else could hear.
+		AudioDirector.play_2d(AudioDirector.HITMARKER)
 		_shake(gubs.get(killer_id), 0.35)
 
 

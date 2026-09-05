@@ -189,6 +189,7 @@ func _do_throw_spear(origin: Vector3, direction: Vector3) -> void:
 		_gub.held_spear.set_carried(false)
 		_regrow_spear()
 
+	AudioDirector.play_3d_varied(AudioDirector.SPEAR_THROW, origin)
 	var spear := SPEAR.launch(_spawn_root(), _gub, origin, direction, Net.is_host)
 	spear.struck_gub.connect(_on_spear_struck_gub.bind(spear))
 	_gub.threw_spear.emit(origin, direction)
@@ -201,6 +202,11 @@ func _regrow_spear() -> void:
 	if is_instance_valid(_gub) and _gub.held_spear != null:
 		_gub.held_spear.set_carried(true)
 		cooldowns_changed.emit()
+		# Only the Gub whose hand it is needs to hear this — it is a readiness
+		# cue for the player, not an event in the world that gives your
+		# position away to everyone nearby.
+		if _gub.is_local():
+			AudioDirector.play_2d(AudioDirector.SPEAR_READY)
 
 
 func _on_spear_struck_gub(victim: Gub, point: Vector3, bone: String,
@@ -370,6 +376,7 @@ func _do_throw_lure(origin: Vector3, velocity: Vector3) -> void:
 
 	var lure := LURE.instantiate()
 	_spawn_root().add_child(lure)
+	AudioDirector.play_3d_varied(AudioDirector.LURE_THROW, origin)
 	lure.call("launch_from", origin, velocity, _gub.peer_id, _config)
 
 

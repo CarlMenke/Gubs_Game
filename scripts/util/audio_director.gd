@@ -6,6 +6,24 @@ extends Node
 ## sound means allocation churn plus a real chance of leaking players that never
 ## finish. Everything short goes through a fixed pool here instead.
 
+## The sound library, preloaded once. Callers name a sound rather than a path,
+## so nothing in gameplay code has to know where the files live or hold a
+## reference that keeps a stream alive.
+##
+## Every one of these is synthesised by `tools/make_sfx.py` rather than
+## recorded — see the header of that file for why, and re-run it to change one.
+const SPEAR_THROW := preload("res://audio/sfx/spear_throw.wav")
+const SPEAR_HIT_BODY := preload("res://audio/sfx/spear_hit_body.wav")
+const SPEAR_HIT_WORLD := preload("res://audio/sfx/spear_hit_world.wav")
+const SPEAR_READY := preload("res://audio/sfx/spear_ready.wav")
+const MUSHROOM_DEPLOY := preload("res://audio/sfx/mushroom_deploy.wav")
+const LURE_THROW := preload("res://audio/sfx/lure_throw.wav")
+const LURE_ARM := preload("res://audio/sfx/lure_arm.wav")
+const LURE_FIRE := preload("res://audio/sfx/lure_fire.wav")
+const DEATH := preload("res://audio/sfx/death.wav")
+const RESPAWN := preload("res://audio/sfx/respawn.wav")
+const HITMARKER := preload("res://audio/sfx/hitmarker.wav")
+
 const BUSES := {
 	"volume_master": "Master",
 	"volume_music": "Music",

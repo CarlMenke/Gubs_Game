@@ -57,6 +57,7 @@ func plant(spot: Vector3, yaw: float, lifetime: float, planted_by: int) -> void:
 	var grow := create_tween()
 	grow.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	grow.tween_property(_model, "scale", Vector3.ONE, GROW_TIME)
+	AudioDirector.play_3d_varied(AudioDirector.MUSHROOM_DEPLOY, global_position)
 
 
 func _build_collision() -> void:

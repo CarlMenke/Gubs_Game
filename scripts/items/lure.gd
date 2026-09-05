@@ -118,6 +118,7 @@ func _arm() -> void:
 	_phase = Phase.ARMED
 	_timer = _fuse
 	_velocity = Vector3.ZERO
+	AudioDirector.play_3d_varied(AudioDirector.LURE_ARM, global_position)
 	if _light != null:
 		_light.light_energy = GLOW_ARMED
 
@@ -130,6 +131,7 @@ func _tick_fuse(delta: float) -> void:
 		return
 	_phase = Phase.PULLING
 	_timer = _hold
+	AudioDirector.play_3d(AudioDirector.LURE_FIRE, global_position)
 	if _light != null:
 		_light.light_energy = GLOW_PULLING
 	_catch()

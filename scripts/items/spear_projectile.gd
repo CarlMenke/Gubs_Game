@@ -177,6 +177,7 @@ func _stick_in(victim: Gub, point: Vector3, bone: String) -> void:
 	_stuck_age = 0.0
 	global_position = point + _velocity.normalized() * BURY_DEPTH
 	_velocity = Vector3.ZERO
+	AudioDirector.play_3d_varied(AudioDirector.SPEAR_HIT_BODY, point)
 	if _trail != null:
 		_trail.begin_fade()
 		_trail = null
@@ -186,6 +187,7 @@ func _stick_in(victim: Gub, point: Vector3, bone: String) -> void:
 func _stick(normal: Vector3) -> void:
 	_stuck = true
 	set_process_priority(0)
+	AudioDirector.play_3d_varied(AudioDirector.SPEAR_HIT_WORLD, global_position)
 	if _trail != null:
 		_trail.begin_fade()
 		_trail = null
