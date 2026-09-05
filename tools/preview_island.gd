@@ -175,17 +175,21 @@ func _framing() -> Dictionary:
 		"spawns":
 			# High and steep, so all eight pads and the ground between them are
 			# in one frame and the spread can be judged rather than trusted.
-			return {"eye": Vector3(0.0, reach * 1.15, reach * 0.55),
-				"look": centre, "fov": 62.0}
+			# Kept as close as that allows: the volumetric fog is tuned for
+			# distances *on* a 40-60 m island (D-009), and a camera forty metres
+			# off the map renders almost pure haze.
+			return {"eye": Vector3(0.0, reach * 0.72, reach * 0.34),
+				"look": centre, "fov": 72.0}
 		"hollow":
 			return {"eye": centre + Vector3(13.0, 3.0, 13.0),
 				"look": centre + Vector3.UP * 1.0, "fov": 70.0}
 		_:
 			# `wide`: the establishing shot. Low enough that the horizon and the
 			# island's underside are both in frame, which is where the sky and
-			# the silhouette have to work together.
-			return {"eye": Vector3(-reach * 0.85, 13.0, reach * 1.25),
-				"look": Vector3(0.0, -1.0, 0.0), "fov": 58.0}
+			# the silhouette have to work together — and no further out than the
+			# fog can see through, for the reason given under `spawns`.
+			return {"eye": Vector3(-reach * 0.52, 9.0, reach * 0.78),
+				"look": Vector3(0.0, -2.5, 0.0), "fov": 62.0}
 
 
 func _ground(at: Vector2) -> Vector3:
@@ -198,12 +202,18 @@ func _ground(at: Vector2) -> Vector3:
 func _report_roster() -> void:
 	print("preview_island: phase=%d gubs=%d spawns=%d" % [
 		MatchState.phase, MatchState.gubs.size(), _arena.spawn_points.size()])
+	var closest := INF
 	for i in _arena.spawn_points.size():
 		var origin := _arena.spawn_points[i].origin
+		for j in range(i + 1, _arena.spawn_points.size()):
+			closest = minf(closest, origin.distance_to(_arena.spawn_points[j].origin))
 		print("  spawn %d at %v (ground %.2f, slope %.2f, inset %.1f)" % [
 			i, origin, _arena.island.height_at(origin.x, origin.z),
 			_arena.island.slope_at(origin.x, origin.z),
 			_arena.island.inset_at(origin.x, origin.z)])
+	# Two pads closer together than this and a full lobby opens the match inside
+	# each other's spear range with spawn protection as the only thing in the way.
+	print("  closest pair %.1f m" % closest)
 
 
 ## Every Gub's height above the ground it should be standing on. The one thing a

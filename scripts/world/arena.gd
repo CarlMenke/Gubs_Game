@@ -164,7 +164,7 @@ func _build_spawn_points() -> void:
 	var twist := rng.randf_range(0.0, TAU)
 	for i in SPAWN_COUNT:
 		var bearing := twist + TAU * float(i) / float(SPAWN_COUNT)
-		var found := _solve_spawn(mass, bearing, rng)
+		var found := _solve_spawn(mass, bearing)
 		var ground := island.surface_point(found.x, found.y) + Vector3.UP * SPAWN_LIFT
 		# Facing the middle of the map. A player whose first frame looks out over
 		# the void has to turn around before they can read anything.
@@ -179,22 +179,45 @@ func _build_spawn_points() -> void:
 		landmarks.keepouts.append(PropScatter.Keepout.new(found, 3.6, false))
 
 
-func _solve_spawn(mass: IslandGenerator.Landmass, bearing: float,
-		rng: RandomNumberGenerator) -> Vector2:
-	var ideal := _spawn_candidate(mass, bearing, SPAWN_RING)
-	# Widening search: nudge the bearing a little, then pull the radius in a
-	# little, then both. Sixteen tries covers a quarter of the rim either way,
-	# which is more than a spawn should ever have to move.
-	for attempt in 16:
-		var swing := (0.06 + 0.02 * float(attempt)) * (1.0 if attempt % 2 == 0 else -1.0)
-		var pull := SPAWN_RING - 0.035 * float(attempt / 2)
-		var spot := _spawn_candidate(mass, bearing + swing, pull)
-		if _spawn_is_good(spot):
-			return spot
-	if _spawn_is_good(ideal):
-		return ideal
-	push_warning("arena: spawn at bearing %.2f fell back to its ideal position" % bearing)
-	return ideal
+## Search outward from the ideal pad until something passes every rule.
+##
+## The sweep has to be wide. The spawn ring sits at two thirds of the rim radius
+## and the knoll's centre is 11 m out, so the ring runs straight through the
+## shrine — the pad whose ideal bearing points at the high ground has to travel a
+## long way to get clear of it. A fifth of a radian was not nearly enough: that
+## pad ran out of tries and landed on a 32-degree slope inside the shrine's own
+## courtyard, and widening it only slightly then put it on the shrine *platform*,
+## which is worse. Spawning on the map's commanding position is not a cosmetic
+## defect.
+##
+## So: a full sweep for a pad that satisfies everything; failing that, the
+## flattest pad that is at least out of every landmark, accepting a slope we
+## would rather not have; and only if even that finds nothing, the ideal.
+func _solve_spawn(mass: IslandGenerator.Landmass, bearing: float) -> Vector2:
+	var fallback := Vector2.INF
+	var fallback_slope := INF
+	for swing_step in 13:
+		# 0, +0.16, -0.16, +0.32, -0.32 ... out to about 37 degrees either way.
+		var swing := 0.16 * float((swing_step + 1) / 2) 			* (1.0 if swing_step % 2 == 0 else -1.0)
+		for ring_step in 7:
+			var fraction := SPAWN_RING + 0.055 * float(ring_step - 3)
+			var spot := _spawn_candidate(mass, bearing + swing, fraction)
+			if not _spawn_is_clear(mass, spot):
+				continue
+			var slope := island.slope_at(spot.x, spot.y, 0.8)
+			if slope <= SPAWN_MAX_SLOPE:
+				return spot
+			if slope < fallback_slope:
+				fallback_slope = slope
+				fallback = spot
+
+	if fallback != Vector2.INF:
+		push_warning("arena: spawn at bearing %.2f is steeper than wanted (%.2f)"
+			% [bearing, fallback_slope])
+		return fallback
+	push_warning("arena: no clear spawn at bearing %.2f; using its ideal position"
+		% bearing)
+	return _spawn_candidate(mass, bearing, SPAWN_RING)
 
 
 func _spawn_candidate(mass: IslandGenerator.Landmass, bearing: float,
@@ -202,12 +225,13 @@ func _spawn_candidate(mass: IslandGenerator.Landmass, bearing: float,
 	return Vector2(cos(bearing), sin(bearing)) * mass.rim_radius(bearing) * fraction
 
 
-func _spawn_is_good(spot: Vector2) -> bool:
-	if island.landmass_at(spot.x, spot.y) != island.landmasses[0]:
+## Everything about a pad except how steep it is: on the right landmass, well
+## inside the rim, out of every landmark and off every torch. Slope is judged
+## separately because it is the one rule the search is willing to bend.
+func _spawn_is_clear(mass: IslandGenerator.Landmass, spot: Vector2) -> bool:
+	if island.landmass_at(spot.x, spot.y) != mass:
 		return false
 	if island.inset_at(spot.x, spot.y) < SPAWN_RIM_MARGIN:
-		return false
-	if island.slope_at(spot.x, spot.y, 0.8) > SPAWN_MAX_SLOPE:
 		return false
 	for keepout: PropScatter.Keepout in landmarks.keepouts:
 		# Only the hard keepouts matter: a spawn is allowed to be on the grassy
