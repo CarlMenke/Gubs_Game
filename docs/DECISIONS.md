@@ -239,3 +239,124 @@ this tool, and the ragdoll was signed off on a frame that — under the old
 counter — was about 0.2 s after death. The corpse pulls itself apart at 0.5 s.
 A verification loop that silently samples earlier than you asked will certify
 broken things, and did.
+
+## D-013 — The ragdoll's joints were too tight, not too loose
+A corpse held together perfectly in the air and detonated the instant it touched
+the ground — always starting at a foot, reaching 200 m/s within a dozen ticks.
+Three plausible causes were investigated and are recorded here so nobody spends
+another afternoon on them:
+
+- **The basis handedness** (`_basis_along`) was genuinely wrong once and is now
+  right. Fixing it changed nothing.
+- **`body_offset`** is correct. Instrumenting the corpse showed every bone
+  tracking its rigid body exactly; the bodies themselves were separating.
+- **Continuous collision detection**, which the small fast-moving shin capsules
+  looked like a textbook case for, delays the blow-up by four physics ticks and
+  fixes nothing.
+
+The actual cause: a cone-twist joint driven past its limit does not clamp.
+Godot's limit solver pushes back, and past a large enough violation it pushes
+back hard enough to *add* energy. Chain thirteen of them and the corpse tears
+itself apart. Landing folds a knee far further than the 44 degrees it was
+allowed, so the explosion happened on the first ground contact, every time.
+
+Bisecting the joint configuration is what proved it. With the angular limits
+removed entirely (pin joints) the corpse settled normally. With Godot's stock
+softness/relaxation/bias but the original spans, it still exploded. So the
+solver tuning — the obvious suspect, and the thing D-010 spends a paragraph on —
+was never involved. The spans were.
+
+Two changes were needed. The spans are now wide enough to cover the range a
+falling body actually reaches (knees and elbows to 105 degrees). And the joint
+frame is rotated 90 degrees about Z, because a cone-twist measures swing and
+twist about its frame's local **X** while the capsules run along local **Y**:
+with an identity basis the cone opened sideways across the limb, so "swing"
+limited rotation about the bone and "twist" limited the bend. A knee folding on
+impact was being checked against a 14-degree twist limit.
+
+The lesson worth keeping: **when in doubt, open a ragdoll joint up.** A corpse
+that bends too freely looks rubbery, which is the intended look anyway. One that
+bends too little does not look stiff — it explodes.
+
+## D-014 — Thrown arcs are solved, not aimed
+The lure is slow enough for gravity to matter — 22 m/s under 22 m/s² — so firing
+it flat along the aim direction dropped it about five metres from the thrower no
+matter where the crosshair was. A lure "lobbed past cover" landed at your feet
+every time, and the ability was unusable in a way no amount of tuning would have
+fixed.
+
+The host now solves the launch angle that actually reaches the aim point, taking
+the flatter of the two solutions so it reads as a thrown object rather than a
+mortar shell, and falling back to 45 degrees — maximum range — when the point is
+out of reach, so an over-ambitious throw still travels as far as it can.
+
+This puts a hard ceiling on the ability at `s²/g`, about 22 m, which is a
+feature: the lure pulls someone out of nearby cover, it is not a way to reach
+across the island.
+
+The wire format carries the **target point**, not a velocity. The client still
+chooses where the lure goes and the host still chooses how fast it gets there,
+so a modified client cannot fling one at an arbitrary speed. `LURE_GRAVITY` in
+`gub_combat.gd` must stay equal to `Lure.GRAVITY`, which integrates the flight —
+the arc is solved in one file and flown in another, and if they disagree the
+lure lands somewhere other than where it was aimed.
+
+The spear does not need this. At 42 m/s with a third of world gravity its drop
+is small enough over its useful range that leading the target is a skill rather
+than an obstacle, which is the point of D-004's fast, flat, instant-kill weapon.
+
+## D-015 — Anything a still frame cannot prove gets a harness
+Two things shipped as "done" that were not, and both failed the same way: the
+only check on them was a rendered frame, and a rendered frame cannot show a
+trend, a rule, or a decision.
+
+The ragdoll was certified on a screenshot taken 0.2 s after death, and pulled
+itself apart at 0.5 s (D-012 covers the clock bug that made that sampling
+possible). The match rules ran, but only ever in free-for-all with one live
+player — teams, lives, the clock and the results summary were written, compiled,
+and never once executed.
+
+So there are now three tiers of verification, each for a different kind of claim:
+
+| tool | proves |
+|---|---|
+| `tools/preview_*.tscn` | it *looks* right — needs a person, always will |
+| `tools/ragdoll_stability.tscn` | a corpse is still a corpse 150 ticks later |
+| `tools/match_rules.tscn` | 42 assertions across 8 scoring scenarios |
+| `tools/smoke_test.sh` | all of the above, plus the import, as one gate |
+
+Two details make these worth more than they look. `ragdoll_stability` was
+checked against the *old* builder and correctly FAILs — a regression guard that
+has never been seen to fail is not a guard. And `smoke_test.sh` treats any
+`SCRIPT ERROR` in the output as a failure, because Godot prints one and carries
+on running: a clean exit code proves nothing on its own, which is exactly how
+the lure managed to be "compiling" for a week while never once launching.
+
+`match_rules` runs as a *scene*, not a `--script` main loop. A script main loop
+is compiled before the autoloads are registered, so it cannot so much as name
+`MatchState` or `Net` without failing to parse — and any script it statically
+references inherits that failure, silently loading the scene without its script
+attached. That is worth knowing before writing the next dev tool.
+
+## D-016 — The sound effects are synthesised, not sampled
+There is no sound library for this project, so `tools/make_sfx.py` generates the
+whole set: filtered noise for the throw whoosh, a 150→62 Hz sweep with a noise
+slap for a body hit, three *inharmonic* partials for the lure's struck-glass
+chime (whole-number ratios would sound like a musical note rather than glass), a
+rising tone for its fuse and a falling one for its pull.
+
+For a game that looks like this, that is not a compromise. A Gub is a cartoon,
+and short synthetic hits read as deliberate stylisation where a mismatched
+library sample reads as an accident. It is also the same argument already made
+for the meshes (D-003) and the ragdoll (D-006): generated means diffable,
+tunable from a single number, and reproducible on any machine. The complete set
+is 381 KB.
+
+Placement carries as much meaning as the sounds. Impacts, throws, deaths and
+deployments are **3D and positional**, because they are events in the world that
+give away where you are. Three are deliberately **2D**: the spear regrowing in
+your hand, the respawn, and the hitmarker. Each is feedback about your own
+situation rather than something another player could hear — and the hitmarker in
+particular is the only confirmation a thrower ever gets that a spear landed,
+since the victim may be sixty metres away behind a tree and the spear is already
+gone.
