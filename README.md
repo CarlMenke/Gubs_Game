@@ -93,19 +93,44 @@ Gub never feels laggy. Up to 8 players.
 
 ## Building a release
 
+Both presets are committed. Windows is the one the game is played on; macOS is
+universal, so it runs natively on Apple Silicon and on Intel.
+
 ```bash
-"$GODOT" --headless --path . --export-release "Windows Desktop" build/windows/GUB.exe
+"$GODOT" --headless --path . --export-release "Windows Desktop" "$PWD/build/windows/GUB.exe"
+"$GODOT" --headless --path . --export-release "macOS"           "$PWD/build/macos/GUB.app"
 ```
 
-The preset is committed as `export_presets.cfg` (deliberately — it holds no
-credentials, and it is the only record of what a shipped build leaves out).
+Pass an **absolute** output path. A relative one is resolved against the project,
+not against your shell, which is a confusing way to lose a build.
 
-You need the **4.7.2 export templates** installed first, which is a one-time
-~1 GB download: in the editor, *Editor → Manage Export Templates → Download*.
+You need the **4.7.2 export templates** installed first — a one-time ~1 GB
+download, either from *Editor → Manage Export Templates → Download* or straight
+from the release:
+
+```bash
+curl -LO https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz
+unzip -q Godot_v4.7.2-stable_export_templates.tpz
+# macOS
+mkdir -p "$HOME/Library/Application Support/Godot/export_templates/4.7.2.stable"
+cp templates/* "$HOME/Library/Application Support/Godot/export_templates/4.7.2.stable/"
+# Windows: %APPDATA%\Godot\export_templates\4.7.2.stable\
+```
+
 Without them the export fails with `No export template found at the expected
-path`, which is the only thing standing between this command and a binary.
+path`, which is the only thing standing between these commands and a binary.
 
----
+The macOS build needs `textures/vram_compression/import_etc2_astc` on, which is
+why it is set in `project.godot`. Godot refuses a universal or arm64 build
+without it — those targets have no S3TC/BPTC hardware — and the error names the
+setting. It costs import time and nothing at runtime on desktop.
+
+The macOS app is signed **ad-hoc**, which is enough to run it yourself and not
+enough to hand to a stranger without Gatekeeper objecting. Notarisation needs an
+Apple Developer account and is not set up.
+
+Sizes, for reference: `GUB.exe` 109 MB plus a 7.9 MB `.pck`; `GUB.app` 172 MB
+universal. Most of that is the engine, not the game.
 
 ## Working on it
 

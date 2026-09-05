@@ -24,7 +24,14 @@ bash tools/smoke_test.sh        # 10 checks, ~2 minutes, finds Godot by itself
 bash tools/net_test.sh          # two processes, one socket. Not in the gate
 ```
 
-`smoke_test.sh` is the gate and it passes.
+`smoke_test.sh` is the gate and it passes, 10 of 10. `net_test.sh` passes all
+eight of its stages (67 + 22 assertions) and still reports FAIL, deliberately:
+one transient engine warning survives at match start, and it holds itself to
+"the engine stayed quiet" rather than "the assertions passed". D-022 explains
+what it is and what the real fix costs.
+
+**Both binaries build**, which had never been done before: `build/windows/GUB.exe`
+and a universal `build/macos/GUB.app` that boots clean. See the README.
 
 ### What the two integrations each found
 
@@ -115,12 +122,12 @@ Phases 0-6 are complete, and Phase 7 is complete except the build itself.
    joiner is never told about Gubs that already spawned, because `_create_gub`
    is broadcast once, at spawn time, and there is no world-state-on-join
    message. That is the whole of the work.
-3. **No binary has ever been produced.** `export_presets.cfg` is committed and
-   correct, but the 4.7.2 **export templates** are not installed on this machine
-   (a one-time ~1 GB download: *Editor → Manage Export Templates*). Without them
-   the export fails with `No export template found at the expected path`. There
-   is also only a Windows preset; a macOS one would be worth adding.
-4. **Phase 7.4** — a final pass and a tag.
+3. **Playing it, properly.** A person has walked around the island and thrown
+   spears, and the automated checks cover the rest — but nobody has played a
+   *match* to a conclusion against another person, and no one has tuned the feel:
+   movement, camera, spear arc, cooldowns, or how readable the map is in a fight
+   at night. That is the work no harness can do.
+4. **Phase 7.4** — the tag, once this branch is merged.
 
 ---
 
