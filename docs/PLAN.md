@@ -51,7 +51,7 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 - [x] 3.4  Spear regeneration — the hand empties on the throw and refills on the cooldown
 - [x] 3.5  Mushroom shield — deployed in front of the Gub, blocks spears, timed/HP, cooldown
 - [x] 3.6  Lure — thrown, arms on landing, briefly yanks nearby Gubs in and holds them
-- [ ] 3.7  Death & respawn — spawn points, spawn protection, fall-off-island death
+- [x] 3.7  Death & respawn — spawn points, spawn protection, fall-off-island death
 - [ ] 3.8  Feedback — kill feed, hitmarker, sounds, camera shake
 
 ## Phase 4 — The map (Whisperbloom Hollow)
@@ -69,10 +69,10 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 
 ## Phase 5 — Match rules
 
-- [ ] 5.1  `MatchManager` — warmup / playing / post-match phases, authoritative timers
-- [ ] 5.2  Free-for-all — kill limit, time limit
-- [ ] 5.3  Teams — assignment, team colours, team score, friendly fire toggle
-- [ ] 5.4  Lives / elimination — last Gub standing, spectate on elimination
+- [x] 5.1  `MatchManager` — warmup / playing / post-match phases, authoritative timers
+- [x] 5.2  Free-for-all — kill limit, time limit
+- [x] 5.3  Teams — assignment, team colours, team score, friendly fire toggle
+- [x] 5.4  Lives / elimination — last Gub standing, spectate on elimination
 - [ ] 5.5  Match end → results screen → rematch or back to lobby
 
 ## Phase 6 — UI / UX
