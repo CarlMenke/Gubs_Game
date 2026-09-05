@@ -1,4 +1,6 @@
 * text=auto eol=lf
+# cmd.exe is not reliable with LF-only batch files; force CRLF on checkout.
+*.bat text eol=crlf
 *.glb binary
 *.gltf text
 *.bin binary
