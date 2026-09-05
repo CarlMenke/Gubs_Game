@@ -77,6 +77,8 @@ echo "  ok"
 echo
 
 echo "headless checks"
+check "invite codes" "invite_codes: PASS" \
+    "$GODOT" --headless --path "$ROOT" tools/invite_codes.tscn
 check "match rules" "match_rules: PASS" \
     "$GODOT" --headless --path "$ROOT" tools/match_rules.tscn
 echo

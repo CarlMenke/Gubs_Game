@@ -20,8 +20,8 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 
 ## Phase 1 — Networking & Lobby
 
-- [ ] 1.1  `Net` autoload — host / join / disconnect, peer registry, player info replication
-- [ ] 1.2  Invite-code system — short shareable code that encodes the host endpoint
+- [x] 1.1  `Net` autoload — host / join / disconnect, peer registry, player info replication
+- [x] 1.2  Invite-code system — short shareable code that encodes the host endpoint
 - [ ] 1.3  Main menu — name entry, Host, Join-by-code, Settings, Quit
 - [ ] 1.4  Lobby UI — player list, invite code + copy, match settings (host-only),
            ready toggle, team pick, start button, chat
