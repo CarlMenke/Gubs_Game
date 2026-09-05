@@ -3,7 +3,8 @@
 Resume point for GUB. Read this first, then `docs/PLAN.md` (the full task list,
 with checkboxes) and `docs/DECISIONS.md` (why things are the way they are).
 
-Last updated: 2026-09-05, just after the two parallel branches were merged.
+Last updated: 2026-09-05, after the two parallel branches were merged and the
+result was played by a person for the first time.
 
 ---
 
@@ -18,8 +19,10 @@ Both merges were clean. The `docs/DECISIONS.md` conflict the previous hand-off
 predicted never happened — neither branch had touched that file, so the entries
 are still D-001 … D-016 and nothing needed renumbering.
 
-The game can now be played end to end for the first time: `SceneFlow` points at
-`main_menu.tscn`, `lobby.tscn` and `arena.tscn`, and all three exist.
+`SceneFlow` points at `main_menu.tscn`, `lobby.tscn` and `arena.tscn`, and all
+three now exist, so the game can be started and played. It has been, on one
+client — see *What a person has actually played* below, which is deliberately
+also a list of what nobody has.
 
 ### What was checked after the merge
 
@@ -34,15 +37,27 @@ touch none of their scenes, so each merged screen was also rendered directly:
 
 The arena builds in ~2.1 s: 1399 props (~716k triangles), 8 spawns, 15 torches.
 
-**None of it was a substitute for playing it**, and the two bugs below are the
-proof: every screen in that table rendered perfectly while the game itself was
-unplayable. Each was rendered in isolation, on a testbed that stands the arena
-up directly, and both bugs lived in the wiring between them — which is the one
-thing rendering a screen cannot check.
+**None of it was a substitute for playing it**, and the three bugs below are the
+proof: every screen in that table rendered perfectly while the game itself could
+not be walked around, aimed, or drawn a HUD over. Each was rendered in isolation
+on a testbed that stands its subject up directly, and all three bugs lived in the
+wiring between them — the one thing rendering a screen cannot check.
 
-A human still has not played it end to end. `tools/cursor_flow.tscn` now walks
-menu → match automatically, but nothing has gone through a lobby with two
-clients and out to the results screen.
+### What a person has actually played
+
+As of 2026-09-05, on Windows, one client, launched with `run.bat`:
+
+| works on screen, confirmed by a human | not tried yet |
+|---|---|
+| menu → host → arena, with the island and its torches | joining by invite code |
+| mouse capture and mouse-look | anything with a second client |
+| WASD movement | the kill feed, with nothing to kill |
+| the spear and the mushroom | the lure |
+| the HUD drawn over the match | scoreboard, pause and results *in a live match* |
+
+The right-hand column is not "probably fine". Every one of the three bugs above
+was in something that had rendered perfectly in a testbed, and the right-hand
+column is exactly the set that has still only been rendered in a testbed.
 
 ### Three things that were wired only into the testbeds
 
@@ -59,8 +74,6 @@ arena had nothing. So every testbed could be walked around and the real game
 could not — while the abilities, which read their own keys in `GubCombat`, kept
 working and made it look like input was fine. `Gub._read_input` now does it,
 next to the movement it feeds, and the two testbed copies are gone.
-
-**The arena never instanced the HUD.**
 
 **The arena never instanced the HUD.** `arena.tscn` was a one-node scene and
 nothing anywhere added `hud.tscn` to it, so a real match had no crosshair, no
@@ -102,7 +115,9 @@ compile fine and quietly agree on nothing.
 
 ### What is left
 
-1. **Play it.** Menu → lobby → match → results, with two clients. Nothing has.
+1. **Play it with two clients.** One client is proven; the lobby, joining by
+   code, the kill feed, the scoreboard and the results screen are not, and each
+   of them is a place where the same wiring bug could be sitting.
 2. **6.5, the spectator camera** — the largest single gap. On elimination the
    HUD says so and goes inert; there is no camera to fly.
 3. **4.10** — one of the eight spawns lands on the shrine's slope, and no

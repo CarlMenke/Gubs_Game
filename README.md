@@ -25,6 +25,12 @@ cd Gubs_Game
 godot --path .            # or open project.godot in the editor
 ```
 
+On Windows, `run.bat` does the same thing without you typing the path to Godot:
+
+```
+run.bat
+```
+
 Godot is not on `PATH`, and **the `.exe` in the download path is a directory**,
 not the binary — which catches everyone once.
 
@@ -107,9 +113,18 @@ bash tools/smoke_test.sh
 ```
 
 Everything that can be checked without a person watching: the headless import,
-the match rules, a ragdoll that has to survive hitting the ground, and the three
-combat modes that report what they did. Run it before committing anything that
-touches gameplay.
+the invite codes, the match rules, a ragdoll that has to survive hitting the
+ground, three combat modes that report what they did, and two checks that walk
+the path a player walks — that holding W moves a Gub, and that starting a match
+takes the mouse. Eight in all. Run it before committing anything that touches
+gameplay.
+
+Those last two are there because the first three bugs found by actually playing
+this were all the same bug: a thing wired into a testbed and into nothing else.
+`tools/` scenes stand their subject up directly and hand it whatever the real
+scene was meant to hand it, which makes them very good at proving a feature
+works and blind to whether anything calls it. **If you add one, ask what it is
+supplying by hand** — that list is the list of things nothing else is checking.
 
 It fails on any `SCRIPT ERROR` as well as on a bad exit code, because Godot
 prints one and carries straight on — a clean exit proves nothing by itself.
