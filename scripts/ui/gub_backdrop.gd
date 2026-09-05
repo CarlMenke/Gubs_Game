@@ -38,10 +38,10 @@ enum Formation { HERO, RING }
 ## Changing this reshuffles the trees without touching anything else.
 @export var glade_seed: int = 40219
 ## Radius of the arc the Gubs stand on, in metres.
-@export var ring_radius: float = 3.9
+@export var ring_radius: float = 4.0
 ## How much of the circle they occupy. They fill the *far* arc, so the near side
 ## stays open and the camera looks into the group rather than at its backs.
-@export_range(40.0, 300.0) var ring_arc_degrees: float = 170.0
+@export_range(40.0, 300.0) var ring_arc_degrees: float = 150.0
 
 ## Trees and undergrowth, by how far out they sit. Pines read as silhouette at
 ## the treeline; the broad-leafed ones have enough canopy to catch torchlight.
@@ -52,25 +52,52 @@ const UNDERGROWTH := ["Bush_Common", "Bush_Common_Flowers", "Fern_1", "Plant_1",
 const FLOOR_DRESSING := ["Mushroom_Common", "Rock_Medium_1", "Rock_Medium_2",
 	"Pebble_Round_2", "Pebble_Square_3", "Clover_1", "Flower_4_Group"]
 
-## Framing per formation: where the camera sits, what it aims at, and how wide.
+## Framing per formation: where the camera sits, what it aims at, how wide, and
+## how much to shrink the nameplates.
+##
 ## The aim point is deliberately off to one side in HERO so the subject sits
 ## right of centre without the camera itself going off-axis and skewing him.
+## RING is pitched down about seventeen degrees, which lifts the whole group
+## into the upper third of the screen — the only band of a lobby that is not
+## covered in panels.
+##
+## `clear_radius` is the hole in the middle of the scatter. In RING it has to
+## be wider than the ring itself: the first version planted boulders at three
+## metres and the lobby became six Gubs standing behind a rock.
+##
+## `plate_scale` exists because `Nameplate` is `fixed_size`: its height on
+## screen is set by the field of view and nothing else, so a plate authored to
+## read at the game's 75 degrees is roughly twice the size it should be at
+## these. Shrinking the node is the only lever from out here, and it keeps the
+## lobby plates matched to the ones over the same heads in a match.
 const FRAMING := {
 	Formation.HERO: {
-		"eye": Vector3(2.35, 1.70, 3.15),
-		"look": Vector3(-1.05, 1.08, -0.10),
-		"fov": 46.0,
+		"eye": Vector3(2.90, 1.78, 4.55),
+		"look": Vector3(-1.65, 1.16, -0.20),
+		"fov": 42.0,
+		"plate_scale": 0.60,
+		"clear_radius": 1.1,
 	},
 	Formation.RING: {
-		"eye": Vector3(0.0, 2.95, 7.30),
-		"look": Vector3(0.0, 1.62, 0.20),
-		"fov": 44.0,
+		"eye": Vector3(0.0, 3.10, 8.20),
+		"look": Vector3(0.0, 0.62, 0.0),
+		"fov": 36.0,
+		"plate_scale": 0.40,
+		"clear_radius": 5.6,
 	},
 }
 
+## Half-width of the wedge, centred on the camera, that no prop may grow in.
+## Without it the scatter cheerfully plants a fern on the lens: both framings
+## look along +Z, so the near side of the glade is the one place a tree is
+## guaranteed to be in the way rather than in the picture.
+const CAMERA_WEDGE := deg_to_rad(58.0)
+## And nothing at all inside this radius of the camera, whatever the angle.
+const CAMERA_CLEARANCE := 6.0
+
 ## Torch flicker. Two detuned sines beat against each other so the period never
 ## quite repeats, which is what stops a flicker reading as a pulsing loop.
-const FIRE_ENERGY := 5.2
+const FIRE_ENERGY := 4.0
 const FIRE_FLICKER := 0.22
 
 var _camera: Camera3D
@@ -172,13 +199,16 @@ func _apply_slot(index: int) -> void:
 	if plate != null:
 		plate.set_display_name(gub.display_name)
 		plate.set_team(team)
+		plate.scale = Vector3.ONE * float(FRAMING[formation]["plate_scale"])
 
 
 func _slot_transform(index: int, count: int) -> Transform3D:
 	if formation == Formation.HERO or count <= 1:
-		# One Gub stands just off the fire, turned a few degrees away from the
-		# camera so the pose reads as three-quarter rather than as a mugshot.
-		return Transform3D(Basis(Vector3.UP, deg_to_rad(163.0)), Vector3(0.0, 0.0, 0.0))
+		# Stood in front of the fire rather than on it, so the flame is a rim
+		# light behind him and his silhouette has something to be a silhouette
+		# against. Turned a few degrees off the camera so the pose reads as
+		# three-quarter rather than as a mugshot.
+		return Transform3D(Basis(Vector3.UP, deg_to_rad(166.0)), Vector3(0.10, 0.0, 1.85))
 
 	# Fill the far arc, centred on the back of the ring. One Gub is at the
 	# middle of the arc, two straddle it, and so on outward.
@@ -250,7 +280,7 @@ func _build_ground() -> void:
 
 ## A seeded glade. Same generator shape as the island (D-007): a ring of canopy
 ## at the treeline, undergrowth inside it, and small dressing on the floor near
-## the fire.
+## the fire. Three passes, one scatter rule, no hand-placed props.
 func _build_glade() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = glade_seed
@@ -258,31 +288,33 @@ func _build_glade() -> void:
 	props.name = "Glade"
 	add_child(props)
 
-	# The treeline. Held back beyond the ring and thinned out toward the camera
-	# so nothing grows in front of the Gubs.
-	for i in 22:
-		var angle := rng.randf() * TAU
-		var distance := rng.randf_range(9.0, 20.0)
-		# `cos(angle)` is +1 straight at the camera; push those trees much
-		# further out rather than deleting them, so the treeline still closes.
-		distance += maxf(0.0, cos(angle)) * 7.0
-		_place(props, CANOPY[rng.randi() % CANOPY.size()],
-			Vector3(sin(angle) * distance, 0.0, cos(angle) * distance),
-			rng.randf() * TAU, rng.randf_range(0.85, 1.35))
+	_scatter(props, rng, CANOPY, 26, 10.0, 22.0, 0.85, 1.35)
+	_scatter(props, rng, UNDERGROWTH, 32, 5.5, 16.0, 0.80, 1.40)
+	_scatter(props, rng, FLOOR_DRESSING, 36, 1.6, 9.0, 0.70, 1.30)
 
-	for i in 26:
-		var angle := rng.randf() * TAU
-		var distance := rng.randf_range(5.5, 15.0) + maxf(0.0, cos(angle)) * 3.0
-		_place(props, UNDERGROWTH[rng.randi() % UNDERGROWTH.size()],
-			Vector3(sin(angle) * distance, 0.0, cos(angle) * distance),
-			rng.randf() * TAU, rng.randf_range(0.8, 1.4))
 
-	for i in 30:
-		var angle := rng.randf() * TAU
-		var distance := rng.randf_range(1.4, 7.0)
-		_place(props, FLOOR_DRESSING[rng.randi() % FLOOR_DRESSING.size()],
-			Vector3(sin(angle) * distance, 0.0, cos(angle) * distance),
-			rng.randf() * TAU, rng.randf_range(0.7, 1.3))
+## Drop `count` props at random bearings and distances, skipping anywhere the
+## camera would be looking through them.
+func _scatter(parent: Node3D, rng: RandomNumberGenerator, models: Array,
+		count: int, near: float, far: float, scale_lo: float, scale_hi: float) -> void:
+	var eye: Vector3 = FRAMING[formation]["eye"]
+	var clear: float = FRAMING[formation]["clear_radius"]
+	var low := maxf(near, clear)
+	var high := maxf(far, low + 2.5)
+	var spread := PI - CAMERA_WEDGE
+	for i in count:
+		# Bearings are sampled around the *back* of the glade and the wedge in
+		# front of the camera is simply never drawn from, rather than being
+		# sampled and rejected: a rejection loop on a wedge this wide throws
+		# away a third of the seed sequence and makes the layout depend on how
+		# many times it retried.
+		var angle := PI + rng.randf_range(-spread, spread)
+		var distance := rng.randf_range(low, high)
+		var spot := Vector3(sin(angle) * distance, 0.0, cos(angle) * distance)
+		if spot.distance_to(eye) < CAMERA_CLEARANCE:
+			continue
+		_place(parent, String(models[rng.randi() % models.size()]), spot,
+			rng.randf() * TAU, rng.randf_range(scale_lo, scale_hi))
 
 
 func _place(parent: Node3D, model: String, spot: Vector3, yaw: float,
@@ -302,48 +334,65 @@ func _build_fire() -> void:
 	pit.name = "Fire"
 	add_child(pit)
 
+	var bark := StandardMaterial3D.new()
+	bark.albedo_color = Color(0.09, 0.066, 0.05)
+	bark.roughness = 1.0
 	for i in 5:
 		var log_mesh := MeshInstance3D.new()
 		var box := BoxMesh.new()
-		box.size = Vector3(0.13, 0.13, 0.95)
-		var bark := StandardMaterial3D.new()
-		bark.albedo_color = Color(0.10, 0.075, 0.055)
-		bark.roughness = 1.0
+		box.size = Vector3(0.10, 0.10, 0.74)
 		box.material = bark
 		log_mesh.mesh = box
+		# Leaned in from a ring rather than crossed at the centre. Stacked at
+		# the origin they read as a black star behind the flame instead of as
+		# a fire someone built.
+		var angle := TAU * float(i) / 5.0 + 0.4
 		log_mesh.transform = Transform3D(
-			Basis(Vector3.UP, TAU * float(i) / 5.0) * Basis(Vector3.RIGHT, deg_to_rad(24.0)),
-			Vector3(0.0, 0.14, 0.0))
+			Basis(Vector3.UP, angle) * Basis(Vector3.RIGHT, deg_to_rad(34.0)),
+			Vector3(sin(angle) * 0.24, 0.12, cos(angle) * 0.24))
 		pit.add_child(log_mesh)
 
-	# The flame itself is an unshaded emissive blob rather than particles: it is
-	# 40 metres from anything the player will look at twice, and the glow pass
-	# turns it into a believable fire for free.
-	var flame := MeshInstance3D.new()
-	var blob := SphereMesh.new()
-	blob.radius = 0.30
-	blob.height = 0.86
-	var hot := StandardMaterial3D.new()
-	hot.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	hot.albedo_color = Color(1.0, 0.62, 0.20)
-	hot.emission_enabled = true
-	hot.emission = Color(1.0, 0.58, 0.18)
-	# Comfortably above the environment's 1.45 glow threshold, which was set
-	# just over a torch-lit Gub so that only real light sources bloom.
-	hot.emission_energy_multiplier = 4.0
-	blob.material = hot
-	flame.mesh = blob
-	flame.position.y = 0.42
-	pit.add_child(flame)
+	# The flame is two unshaded cones rather than particles: it is scenery in a
+	# menu, and the environment's glow pass turns an emissive cone into a
+	# believable fire for a fraction of the cost of a GPUParticles system that
+	# nobody will ever stand next to.
+	_add_flame_cone(pit, 0.26, 0.72, 0.30, Color(1.0, 0.42, 0.10), 2.2)
+	_add_flame_cone(pit, 0.13, 0.46, 0.38, Color(1.0, 0.78, 0.34), 3.4)
 
 	_fire = OmniLight3D.new()
 	_fire.light_color = Color(1.0, 0.63, 0.29)
 	_fire.light_energy = FIRE_ENERGY
-	_fire.omni_range = 17.0
-	_fire.omni_attenuation = 1.4
+	# Tight enough that the glade falls away into night a few metres out. A
+	# wide range lights the whole clearing evenly and the result reads as
+	# daylight with an orange filter on it.
+	_fire.omni_range = 11.0
+	_fire.omni_attenuation = 1.6
 	_fire.shadow_enabled = true
 	# D-009: torch lights need roughly this to punch a halo through the
 	# volumetric fog rather than lighting geometry and nothing else.
 	_fire.light_volumetric_fog_energy = 2.0
-	_fire.position = Vector3(0.0, 0.62, 0.0)
+	_fire.position = Vector3(0.0, 0.55, 0.0)
 	pit.add_child(_fire)
+
+
+func _add_flame_cone(parent: Node3D, radius: float, height: float, centre_y: float,
+		tint: Color, energy: float) -> void:
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = radius
+	cone.height = height
+	cone.radial_segments = 7
+	cone.rings = 1
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = tint
+	mat.emission_enabled = true
+	mat.emission = tint
+	# Comfortably above the environment's 1.45 glow threshold, which was set
+	# just over a torch-lit Gub so that only real light sources bloom.
+	mat.emission_energy_multiplier = energy
+	cone.material = mat
+	var mesh := MeshInstance3D.new()
+	mesh.mesh = cone
+	mesh.position.y = centre_y
+	parent.add_child(mesh)

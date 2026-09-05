@@ -136,7 +136,10 @@ static func _panels(theme: Theme) -> void:
 		_pad(_bordered(UIPalette.PANEL, UIPalette.LINE), UIPalette.PAD, UIPalette.PAD))
 
 	theme.set_type_variation("RowPanel", "PanelContainer")
-	theme.set_stylebox("panel", "RowPanel", _pad(_flat(UIPalette.RAISED), 14, 9))
+	# Deliberately tight: a full eight-player roster has to fit the lobby's list
+	# without a scroll bar, and a scroll bar in a list of eight is a design that
+	# has given up.
+	theme.set_stylebox("panel", "RowPanel", _pad(_flat(UIPalette.RAISED), 14, 5))
 
 	# The HUD has no 3D "behind" to preserve, because it *is* on top of the
 	# game. Its panels are barely there at all and never bordered: a hairline

@@ -128,8 +128,10 @@ func _on_join_toggled() -> void:
 
 
 func _set_join_open(open: bool) -> void:
+	# No open/closed marker on the button: the field appearing directly beneath
+	# it is the affordance, and a bare glyph on the end of a label reads as a
+	# typo.
 	_join_panel.visible = open
-	_join_button.text = "JOIN WITH A CODE" if not open else "JOIN WITH A CODE  ·"
 	if open:
 		_code_edit.grab_focus()
 		_code_edit.select_all()
