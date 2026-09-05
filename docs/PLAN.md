@@ -22,13 +22,14 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 
 - [x] 1.1  `Net` autoload — host / join / disconnect, peer registry, player info replication
 - [x] 1.2  Invite-code system — short shareable code that encodes the host endpoint
-- [ ] 1.3  Main menu — name entry, Host, Join-by-code, Settings, Quit
-- [ ] 1.4  Lobby UI — player list, invite code + copy, match settings (host-only),
+- [x] 1.3  Main menu — name entry, Host, Join-by-code, Settings, Quit
+- [x] 1.4  Lobby UI — player list, invite code + copy, match settings (host-only),
            ready toggle, team pick, start button, chat
-- [ ] 1.5  Lobby 3D backdrop — real Gubs standing in a ring with live nameplates
-- [ ] 1.6  `MatchConfig` resource — mode, limits, timers, cooldowns, friendly fire
-- [ ] 1.7  Scene flow — Menu → Lobby → Game → Results → Lobby
-- [ ] 1.8  Robust disconnect handling (host leaves, client drops, mid-match join as spectator)
+- [x] 1.5  Lobby 3D backdrop — real Gubs standing in a ring with live nameplates
+- [x] 1.6  `MatchConfig` resource — mode, limits, timers, cooldowns, friendly fire
+- [x] 1.7  Scene flow — Menu → Lobby → Game → Results → Lobby
+- [~] 1.8  Robust disconnect handling (host leaves, client drops, mid-match join as spectator)
+           *`Net` handles all three; the UI's response to each has never been exercised*
 
 ## Phase 2 — The Gub (character)
 
@@ -52,20 +53,22 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 - [x] 3.5  Mushroom shield — deployed in front of the Gub, blocks spears, timed/HP, cooldown
 - [x] 3.6  Lure — thrown, arms on landing, briefly yanks nearby Gubs in and holds them
 - [x] 3.7  Death & respawn — spawn points, spawn protection, fall-off-island death
-- [~] 3.8  Feedback — sounds, hitmarker and camera shake done; kill feed is 6.3
+- [x] 3.8  Feedback — sounds, hitmarker, camera shake and kill feed
 
 ## Phase 4 — The map (Whisperbloom Hollow)
 
-- [ ] 4.1  Procedural floating island — surface heightfield + rocky underside + collision
-- [ ] 4.2  Out-of-bounds death volume below the island
-- [ ] 4.3  Seeded prop scatter — trees, bushes, ferns, grass, flowers, mushrooms, pebbles
-- [ ] 4.4  Hand-placed landmarks — shrine, mushroom grove, rock arch, log bridges, high ground
-- [ ] 4.5  Torches — mesh, flame particles, flickering light, crackle audio
+- [x] 4.1  Procedural floating island — surface heightfield + rocky underside + collision
+- [x] 4.2  Out-of-bounds death volume below the island
+- [x] 4.3  Seeded prop scatter — trees, bushes, ferns, grass, flowers, mushrooms, pebbles
+- [x] 4.4  Hand-placed landmarks — shrine, mushroom grove, rock arch, log bridges, high ground
+- [x] 4.5  Torches — mesh, flame particles, flickering light, crackle audio
 - [x] 4.6  Sky — custom shader: dusk gradient, stars, moon, aurora, drifting cloud band
 - [x] 4.7  WorldEnvironment — volumetric fog, glow, SSAO, tonemap, colour grade
-- [ ] 4.8  Ambience VFX — fireflies, drifting spores, wind-swayed foliage, falling leaves
-- [ ] 4.9  Ambient audio — forest loop, wind, water
-- [ ] 4.10 Spawn points + traversal pass (scale, sightlines, cover balance)
+- [x] 4.8  Ambience VFX — fireflies, drifting spores, wind-swayed foliage, falling leaves
+- [x] 4.9  Ambient audio — forest loop, wind, water
+- [~] 4.10 Spawn points + traversal pass (scale, sightlines, cover balance)
+           *8 spawns solved and placed; one lands on the shrine's slope, and no
+           traversal pass has been done*
 
 ## Phase 5 — Match rules
 
@@ -73,17 +76,19 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 - [x] 5.2  Free-for-all — kill limit, time limit
 - [x] 5.3  Teams — assignment, team colours, team score, friendly fire toggle
 - [x] 5.4  Lives / elimination — last Gub standing, spectate on elimination
-- [ ] 5.5  Match end → results screen → rematch or back to lobby
+- [x] 5.5  Match end → results screen → rematch or back to lobby
 
 ## Phase 6 — UI / UX
 
-- [ ] 6.1  HUD — crosshair, ability cooldowns, score, timer, lives
-- [ ] 6.2  Scoreboard (hold Tab)
-- [ ] 6.3  Kill feed
-- [ ] 6.4  Pause & settings — sensitivity, FOV, volume, quality preset, keybinds
-- [ ] 6.5  Spectator camera
-- [ ] 6.6  Scene transitions / loading
-- [ ] 6.7  Chat (lobby + in-match)
+- [x] 6.1  HUD — crosshair, ability cooldowns, score, timer, lives
+- [x] 6.2  Scoreboard (hold Tab)
+- [x] 6.3  Kill feed
+- [~] 6.4  Pause & settings — sensitivity, FOV, volume, quality preset, keybinds
+           *all of it except keybinds, which have no rebinding UI at all*
+- [ ] 6.5  Spectator camera *(the HUD says ELIMINATED and goes inert; there is
+           no camera to fly — this is the largest single gap left)*
+- [x] 6.6  Scene transitions / loading
+- [x] 6.7  Chat (lobby + in-match)
 
 ## Phase 7 — Ship
 

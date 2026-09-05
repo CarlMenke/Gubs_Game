@@ -3,56 +3,64 @@
 Resume point for GUB. Read this first, then `docs/PLAN.md` (the full task list,
 with checkboxes) and `docs/DECISIONS.md` (why things are the way they are).
 
-Last updated: 2026-09-04, at a deliberate hand-off point.
+Last updated: 2026-09-05, just after the two parallel branches were merged.
 
 ---
 
 ## Read this before anything else
 
-**Two branches are pushed but NOT merged.** They were being built by two agents
-that were stopped mid-task; everything they had is committed, including the
-unfinished work, which is marked `WIP:` in the log. Nothing on `main` depends on
-them and `main` is green — but the game cannot be played end to end until they
-land, because they hold the only two scenes `SceneFlow` points at that `main`
-does not have.
+**`feat/island` and `feat/ui` are merged into `main`.** Everything
+now lives on `main`, which is where it was always meant to live; those branches
+only ever existed so two agents could work without fighting over one Godot
+import cache.
 
-| branch | building | last commit |
-|---|---|---|
-| `feat/island` | Phase 4 — the island, scatter, landmarks, torches, ambience, and **`scenes/world/arena.tscn`** | `The island was inside-out, and everything else followed from that` |
-| `feat/ui` | Phases 1.3–1.8 and 6 — menu, lobby, HUD, scoreboard, pause, results | `The lobby: a ring of real Gubs and everything the host can dial` |
+Both merges were clean. The `docs/DECISIONS.md` conflict the previous hand-off
+predicted never happened — neither branch had touched that file, so the entries
+are still D-001 … D-016 and nothing needed renumbering.
 
-**Everything is committed and pushed.** The last commit on each branch is a
-`WIP:` commit holding what the agent had not finished, and each one says in its
-message exactly where it had got to and what it had *not* verified:
+The game can now be played end to end for the first time: `SceneFlow` points at
+`main_menu.tscn`, `lobby.tscn` and `arena.tscn`, and all three exist.
 
-- `feat/island` — `WIP: arena spawn placement and the island preview`. Compiles,
-  not looked at. Next step was one spawn point that lands on the shrine's slope.
-- `feat/ui` — `WIP: HUD, scoreboard, kill feed, pause menu and results screen`.
-  Compiles; the HUD has been seen running in `tools/hud_range.tscn`, the rest
-  has not. Next steps were ability-slot key caps, kill-feed alignment, and a
-  more compact chat panel.
+### What was checked after the merge
 
-**Treat everything in those two WIP commits as unreviewed.** The finished
-commits below them were verified by their agents; the WIP ones were not.
+`bash tools/smoke_test.sh` passes 6 checks. That gate predates both branches and
+touches none of their scenes, so each merged screen was also rendered directly:
 
-The worktrees at `C:/Users/carlm/REPOS/Gubs_Game_island` and
-`.../Gubs_Game_ui` are now clean and safe to remove with
-`git worktree remove` once the branches are merged.
+| checked | how |
+|---|---|
+| main menu, lobby (empty and 8/8) | `tools/ui_range.tscn`, modes `menu`, `lobby_full` |
+| HUD, kill feed, scoreboard, pause, results | `tools/hud_range.tscn`, modes as named |
+| the island, lit, with its props and torches | `tools/preview_island.tscn` |
 
-### How to finish this
+The arena builds in ~2.1 s: 1399 props (~716k triangles), 8 spawns, 15 torches.
 
-1. In each worktree, `git status`, review, commit anything worth keeping, push.
-2. Merge both into `main`. **The file sets are disjoint** — `scripts/world/**` +
-   `scenes/world/**` versus `scripts/ui/**` + `scenes/ui/**` + `resources/ui/**`
-   — so the merges should be clean. Neither touches `project.godot`.
-3. The one likely conflict is `docs/DECISIONS.md`: both agents were told to
-   append entries, and `main` already uses **D-001 … D-016**. Resolve by
-   **renumbering their entries, not by dropping any**.
-4. Delete the branches and worktrees once merged. The intent is that everything
-   lives on `main`; these branches only existed so two agents could run in
-   parallel without fighting over one Godot import cache.
-5. Then do the thing nothing has ever done: **play it from the main menu through
-   a match to the results screen.**
+**None of it is a substitute for playing it.** Every screen above was rendered
+in isolation with a fake roster; nothing has walked the real path from the menu
+through a lobby into a match and out to the results screen.
+
+### One thing the merge itself broke, and the fix
+
+The two branches disagreed about where the ambient loops live. `Ambience.LOOPS`
+named `res://assets/audio/ambience/forest_night.ogg` and `wind_high.ogg` — files
+the island agent expected someone to make — while the audio work on `main` made
+them as `res://audio/ambience/ambient_forest.wav` and `ambient_wind.wav`.
+
+`_build_audio` skips a loop it cannot resolve *silently*, by design, so the
+island would have shipped with fireflies and torches and no sound at all, and
+nothing would have said so. `LOOPS` now names the real files. This is the shape
+of bug to look for after a parallel merge: not a conflict, but two halves that
+compile fine and quietly agree on nothing.
+
+### What is left
+
+1. **Play it.** Menu → lobby → match → results, with two clients. Nothing has.
+2. **6.5, the spectator camera** — the largest single gap. On elimination the
+   HUD says so and goes inert; there is no camera to fly.
+3. **4.10** — one of the eight spawns lands on the shrine's slope, and no
+   traversal pass has been done.
+4. **1.8** — `Net` handles host-leaves, client-drops and mid-match join; what
+   the UI does in response to each has never been exercised.
+5. **6.4** — keybinds have no rebinding UI. Everything else in settings is in.
 
 ---
 
@@ -60,8 +68,9 @@ The worktrees at `C:/Users/carlm/REPOS/Gubs_Game_island` and
 
 `main` is green: `bash tools/smoke_test.sh` passes 6 checks.
 
-Phases 0, 2, 3 and 5 are done and verified on screen. Phase 1 is done except its
-UI. Phase 4 is sky and environment only. Phases 6 and 7 are the gaps.
+Phases 0 through 5 are complete, bar one spawn point (4.10) and the UI half of
+disconnect handling (1.8). Phase 6 is complete except the spectator camera (6.5)
+and keybind rebinding (6.4). Phase 7 needs the export templates and a tag.
 
 ### Known issue — the ragdoll can still stretch a limb
 
@@ -267,9 +276,10 @@ produced**. 7.4 is a final pass and a tag, after the merges.
 
 ## Git
 
-`main`, `feat/island` and `feat/ui` are all pushed to
-**https://github.com/CarlMenke/Gubs_Game** (public). The two feature branches
-are meant to be merged into `main` and deleted, along with their worktrees.
+`main` is pushed to **https://github.com/CarlMenke/Gubs_Game** (public) and is
+the only branch that matters — `feat/island` and `feat/ui` have both been merged
+into it. Delete them, and their worktrees, once you are satisfied with the
+merge; nothing on `main` needs them.
 
 The repo belongs to CarlMenke; JulianC775 is a collaborator with push rights, so
 plain `git push` works from this machine. If it ever 403s, check that first:

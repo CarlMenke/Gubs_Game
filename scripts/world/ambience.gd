@@ -14,11 +14,13 @@ extends RefCounted
 ## playing different games. It is seeded because it costs nothing to be, and
 ## because "why is this frame different" is a question worth never having to ask.
 
-## Ambient loops, by the bus they belong on. None of these files exist yet — see
-## the note on `_build_audio` — and each one is skipped silently until it does.
+## Ambient loops, by the bus they belong on. These are the same two beds
+## `AudioDirector` holds; they are named by path here rather than through it so
+## that a `--script` tool loading this file does not need the autoload (D-015).
+## Each is still skipped silently if it fails to resolve.
 const LOOPS := {
-	"forest": "res://assets/audio/ambience/forest_night.ogg",
-	"wind": "res://assets/audio/ambience/wind_high.ogg",
+	"forest": "res://audio/ambience/ambient_forest.wav",
+	"wind": "res://audio/ambience/ambient_wind.wav",
 }
 
 
