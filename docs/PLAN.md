@@ -6,7 +6,8 @@ A match-based 3rd-person multiplayer game in Godot 4.7.2. Players are GUBs — s
 aliens — fighting on a floating enchanted-forest island with instant-kill thrown spears.
 
 This is the single source of truth for scope. Every item is tracked to completion.
-Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
+Design rationale for non-obvious choices lives in `docs/DECISIONS.md`; how the
+pieces fit together is `docs/ARCHITECTURE.md`.
 
 ---
 
@@ -104,5 +105,6 @@ Design rationale for non-obvious choices lives in `docs/DECISIONS.md`.
 - [x] 7.1  Export presets (Windows + macOS universal), icon, app metadata
 - [x] 7.2  Headless import + automated smoke test script
 - [x] 7.3  README — how to build, run, host, and join
-- [~] 7.4  Final pass + tagged commit *(both binaries build and the macOS one
-           boots clean; the tag waits on this branch being merged)*
+- [x] 7.4  Final pass + tagged commit — both binaries build, the macOS one boots
+           clean, `feat/complete-game` is merged to `main` and the release is
+           tagged `v0.1.0`

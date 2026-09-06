@@ -45,7 +45,9 @@ Split of authority:
 The user asked for "click invite, get a key, anyone with the key can join". Doing that
 across the internet with no fixed address normally needs a signalling/relay server, which
 means infrastructure to run and pay for. Instead the invite code is a **Crockford-base32
-encoding of the host's IPv4 address + port**, formatted `XXXX-XXXX-XX`.
+encoding of the host's IPv4 address + port**, formatted `XXXXX-XXXXX`. Six bytes
+of payload become exactly ten characters, so there is no padding and every code
+is the same length.
 
 This is real and works today over LAN, over a VPN (Tailscale/Hamachi/Radmin), or over the
 internet with one forwarded port — and it needs zero backend. The code is opaque enough to

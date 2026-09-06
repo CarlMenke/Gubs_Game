@@ -139,6 +139,7 @@ Read these in order:
 | | |
 |---|---|
 | `docs/STATUS.md` | **start here** — where things are and what to do next |
+| `docs/ARCHITECTURE.md` | how it is put together, and where the seams are |
 | `docs/PLAN.md` | the full scope, tracked to completion |
 | `docs/DECISIONS.md` | why anything non-obvious is the way it is |
 
@@ -224,7 +225,7 @@ never modified; re-running either script is always safe.
 art/generated/   game-ready meshes and textures — committed, no Python needed
 assets/          raw source art (.gdignore'd; only the MegaKit is imported)
 audio/sfx/       synthesised sound effects — committed, see tools/make_sfx.py
-docs/            STATUS, PLAN, DECISIONS
+docs/            STATUS, PLAN, DECISIONS, ARCHITECTURE
 resources/       shaders, environment, bus layout
 scenes/          player, items, ui, world
 scripts/         game, items, net, player, ui, util, world
@@ -236,6 +237,8 @@ Autoloads: `Settings`, `Net`, `MatchState`, `SceneFlow`, `AudioDirector`.
 ---
 
 ## Credits and licence
+
+The game's own code and assets are **MIT** licensed — see [LICENSE](LICENSE).
 
 Environment art is the **Stylized Nature MegaKit** (CC0). The Gub, spear, lure
 and mushroom are project assets. Sound effects are synthesised from scratch by
