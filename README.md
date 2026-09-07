@@ -13,6 +13,12 @@ nearby out into the open for about a second.
 
 ---
 
+**Just want to play it?** See [`docs/PLAYING.md`](docs/PLAYING.md) — install
+Tailscale, run one `.exe`, paste an invite code. The rest of this file is
+about building it from source.
+
+---
+
 ## Running it
 
 You need [Godot 4.7.2 stable](https://godotengine.org/download) — the standard
