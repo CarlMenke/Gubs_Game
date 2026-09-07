@@ -229,7 +229,17 @@ func _refresh_invite() -> void:
 		_code_label.text = String(Settings.get_value("last_invite_code")).to_upper()
 		_copy_button.disabled = false
 		return
-	_code_caption.text = "%s INVITE CODE" % Net.invite_scope()
+	# A public address that was typed and could not be used fails silently
+	# otherwise: the fallback code is perfectly well-formed, it just does not
+	# leave the building, and the host finds out when their friends cannot
+	# join. So the problem takes the caption's place rather than sitting
+	# beside it — there is one line here and this is the more urgent thing
+	# for it to say.
+	var problem := Net.invite_problem()
+	if problem.is_empty():
+		_code_caption.text = "%s INVITE CODE" % Net.invite_scope()
+	else:
+		_code_caption.text = problem
 	_code_label.text = Net.invite_code()
 	_copy_button.disabled = false
 

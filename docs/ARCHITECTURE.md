@@ -130,10 +130,31 @@ path. That is the mechanism the testbeds run on (**D-011**), and it is the proof
 the seam is real.
 
 The invite code is the other half of having no backend: a Crockford-base32
-encoding of the host's IPv4 address and port, ten characters, formatted
-`XXXXX-XXXXX` (**D-005**). It works on a LAN, over a VPN, or over the internet
-with UDP 27015 forwarded. It also means the code carries the host's address,
-which is a product decision worth confirming rather than a settled one.
+encoding of an IPv4 address and port, ten characters, formatted `XXXXX-XXXXX`
+(**D-005**). It also means the code carries the host's address, which is a
+product decision worth confirming rather than a settled one.
+
+*Which* endpoint goes into it is decided in one place, `Net.invite_code()`, and
+there are two answers:
+
+- **Local.** `select_ipv4()` picks the best address this machine has — a mesh
+  VPN address (Tailscale, ZeroTier) ahead of a LAN one, because it reaches both
+  — and the code carries it with the bound port. Good on a LAN and across a
+  tailnet; useless past the host's NAT.
+- **Public.** If the host has set `public_address` in `Settings` to the
+  `host:port` of a [playit.gg](https://playit.gg) UDP tunnel, the hostname is
+  resolved to an IPv4 **once, when the lobby opens**, and the code carries that
+  address and the tunnel's *public* port. The socket still binds 27015; the
+  agent forwards the public port to it. This is the internet path, and only the
+  host sets anything up (**D-028**).
+
+Both produce the same six bytes, so nothing about the code format, the join
+path or the transport changes between them — `join_address()` gets four bytes
+and a port and does not care where they came from. `invite_scope()` reports
+which answer is in play (`LAN` / `TAILNET` / `INTERNET (PLAYIT)`) and
+`invite_problem()` reports a public address that was typed and could not be
+used, because the fallback code is well-formed and would otherwise fail
+silently.
 
 ---
 

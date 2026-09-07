@@ -12,7 +12,7 @@ extends Node
 ##     Godot --path . --resolution 1600x900 --script tools/snapshot.gd -- \
 ##         res://tools/ui_range.tscn out.png 40 <mode>
 ##
-## Modes: menu, menu_join, menu_notice, settings,
+## Modes: menu, menu_join, menu_notice, settings, settings_network,
 ##        lobby, lobby_full, lobby_teams, lobby_client.
 
 const MENU_SCENE := preload("res://scenes/ui/main_menu.tscn")
@@ -45,7 +45,7 @@ func _ready() -> void:
 		_mode = args[3]
 
 	match _mode:
-		"menu", "menu_join", "menu_notice", "settings":
+		"menu", "menu_join", "menu_notice", "settings", "settings_network":
 			_open_menu()
 		"lobby_full":
 			_open_lobby(7, false, true)
@@ -71,8 +71,38 @@ func _open_menu() -> void:
 	if _mode == "menu_join":
 		(menu.get_node("%JoinButton") as Button).pressed.emit()
 		(menu.get_node("%CodeEdit") as LineEdit).text = "7K2QM-4XVB9"
-	elif _mode == "settings":
-		(menu.get_node("%Settings") as SettingsPanel).open()
+	elif _mode == "settings" or _mode == "settings_network":
+		var panel := menu.get_node("%Settings") as SettingsPanel
+		panel.open()
+		if _mode == "settings_network":
+			await _show_public_address(panel)
+
+
+## Put a plausible playit address in the Network row and scroll down to it.
+##
+## The address is written straight into the control, the way `menu_join` above
+## writes a stand-in code, and deliberately *not* through `Settings`: every
+## checkout of this project shares one `user://settings.cfg` (Godot keys user
+## data on the project name — see `tools/net_loopback.gd`), and a screenshot
+## tool has no business leaving a public address in the file the next person
+## hosts a real game with. Assigning `text` does not emit `text_changed`, so the
+## panel's write-through never fires and nothing is saved.
+##
+## Its own mode rather than a change to `settings`, because the plain one is the
+## top of the panel and stays the reference shot for it.
+func _show_public_address(panel: SettingsPanel) -> void:
+	var field := panel.find_child("PublicAddress", true, false) as LineEdit
+	var note := panel.find_child("PublicAddressNote", true, false) as Label
+	var scroll := panel.find_child("Scroll", true, false) as ScrollContainer
+	if field == null or note == null or scroll == null:
+		push_warning("ui_range: the settings panel has no public-address row")
+		return
+	field.text = "angry-gub.at.ply.gg:41235"
+	# Two frames: the rows are built in `_ready` and the container has not laid
+	# them out yet, so scrolling before this asks for a position of zero.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	scroll.ensure_control_visible(note)
 
 
 # ------------------------------------------------------------------- lobby ---

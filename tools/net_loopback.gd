@@ -46,7 +46,9 @@ extends Node
 ##   1. Godot's user data directory is keyed on the *project name*, not the
 ##      path, so both processes share `user://settings.cfg` and would otherwise
 ##      both join under whatever name was last typed into a name box. Names are
-##      therefore set explicitly here — see `HOST_NAME` and `_run_client`.
+##      therefore set explicitly here — see `HOST_NAME` and `_run_client` — and
+##      `Net.ignore_public_address` is set in `_ready` for the same reason: the
+##      host's playit address is in that same shared file (D-028).
 ##   2. Both processes will try to import assets into `.godot/` if they are
 ##      cold. `tools/net_test.sh` runs `--import` once before starting either.
 ##   3. On macOS, binding UDP 27015 can raise a firewall prompt the first time a
@@ -167,6 +169,17 @@ func _ready() -> void:
 	# It stays a child of `root`, so `/root/NetLoopback` — the path `_ctl`
 	# is addressed by — is unchanged.
 	get_tree().current_scene = null
+
+	# The same shared-user-data problem as the player name above, with a worse
+	# failure. `Net.host_lobby()` reads `public_address` from
+	# `user://settings.cfg` and, if it is set, resolves it over real DNS and
+	# advertises the tunnel it names (D-028) — so a developer who has set up a
+	# playit tunnel for a playtest would find this harness doing a network
+	# lookup and encoding a public endpoint into what is supposed to be a
+	# loopback test. Turned off explicitly rather than by clearing the setting,
+	# because clearing it would write to the file the person running this is
+	# about to host a real game with.
+	Net.ignore_public_address = true
 
 	multiplayer.peer_connected.connect(func(id: int) -> void: _peer_connected.append(id))
 	multiplayer.peer_disconnected.connect(func(id: int) -> void: _peer_disconnected.append(id))

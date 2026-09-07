@@ -65,6 +65,24 @@ var match_running: bool = false
 var _bound_port: int = 0
 var _connect_timer: SceneTreeTimer = null
 
+## The endpoint the invite code advertises when the host has a public address
+## configured, resolved once when the lobby opens. Empty means the ordinary
+## LAN/tailnet path is in use. See `_resolve_public_address`.
+var _public_ip: String = ""
+var _public_port: int = 0
+## The one line the lobby shows instead of the scope caption when a public
+## address was typed and could not be used. Empty in every ordinary case,
+## including the far more common one of no public address at all.
+var _public_problem: String = ""
+
+## Set by `tools/net_loopback.gd` before it hosts. Two copies of this project on
+## one machine share Godot's user data directory — it is keyed on the project
+## *name*, not the path — so the harness reads the `public_address` of whoever
+## is running it. Without this, a developer who has set up a playit tunnel gets
+## a loopback test that resolves their tunnel's hostname over real DNS and
+## encodes a real public address into a code meant to dial 127.0.0.1.
+var ignore_public_address: bool = false
+
 
 func _ready() -> void:
 	multiplayer.peer_connected.connect(_on_peer_connected)
@@ -90,6 +108,8 @@ func host_lobby(port: int = DEFAULT_PORT) -> bool:
 	in_session = true
 	_bound_port = port
 	config = MatchConfig.new()
+	# Once, here, rather than inside `invite_code()`: see `_resolve_public_address`.
+	_resolve_public_address()
 
 	players = {1: _make_player(Settings.sanitized_player_name(), 0)}
 	roster_changed.emit()
@@ -114,6 +134,7 @@ func start_offline() -> void:
 	in_session = true
 	is_offline = true
 	_bound_port = 0
+	_clear_public_address()
 	config = MatchConfig.new()
 
 	players = {1: _make_player(Settings.sanitized_player_name(), 0)}
@@ -129,6 +150,11 @@ func join_lobby(code: String) -> bool:
 	return join_address(endpoint["ip"], endpoint["port"])
 
 
+## Dial a host directly. `ip` is a dotted IPv4 literal and nothing here cares
+## where it came from or what kind of address it is: a LAN address, a tailnet
+## address and a playit anycast address are all just four bytes to ENet, which
+## speaks plain UDP to whatever it is pointed at. That is why routing the game
+## through a tunnel needed no change at all on the joining side (D-028).
 func join_address(ip: String, port: int) -> bool:
 	leave_lobby(Leave.LOCAL_REQUEST, "", false)
 
@@ -163,6 +189,7 @@ func leave_lobby(reason: Leave = Leave.LOCAL_REQUEST, message: String = "",
 	in_session = false
 	is_offline = false
 	match_running = false
+	_clear_public_address()
 	players.clear()
 	roster_changed.emit()
 	if announce and was_in_session:
@@ -332,7 +359,7 @@ func _on_connect_timeout() -> void:
 	_connect_timer = null
 	if in_session and not is_host and players.is_empty():
 		leave_lobby(Leave.CONNECTION_FAILED, "", false)
-		join_failed.emit("Timed out reaching the host.\nIf they are not on your network they need port %d forwarded." % DEFAULT_PORT)
+		join_failed.emit("Timed out reaching the host.\nIf they are not on your network, they need playit.gg running (or UDP %d forwarded)." % DEFAULT_PORT)
 
 
 func _cancel_connect_timer() -> void:
@@ -646,6 +673,145 @@ static func _is_usable_ipv4(address: String) -> bool:
 			and not address.begins_with("169.254.")
 
 
+# ------------------------------------------------------- a public address ---
+#
+# What a mesh VPN cannot fix. `select_ipv4` above picks the best address *this
+# machine has*, and on a home connection behind NAT that is a private one: it
+# reaches the building, and nothing further, unless every player installs
+# Tailscale too. That worked and nobody enjoyed it — six people each making an
+# account and joining a tailnet before anyone throws a spear.
+#
+# playit.gg moves the cost onto the one person who was already doing setup. The
+# host runs the playit agent, which holds a UDP tunnel open to a public endpoint
+# like `angry-gub.at.ply.gg:41235` and forwards it to a local port. Players
+# install nothing. The endpoint is stable for the life of the tunnel, so it can
+# be typed once into Settings and forgotten.
+#
+# The game does not talk to playit and knows nothing about it: this is a string
+# the host types, resolved to an IPv4 and put in the code in place of the local
+# one. See docs/DECISIONS.md D-028.
+
+
+## Split a typed public address into `{"host": String, "port": int}`, or return
+## an empty Dictionary if it is not one.
+##
+## Forgiving about whitespace, because this arrives via a clipboard and a
+## trailing newline is the natural state of anything that has; strict about
+## everything else, because a half-understood address is worse than a rejected
+## one. It would encode into a code that looks perfectly valid and dials
+## nowhere, and the player it fails for would read that as the host being
+## offline.
+##
+## Static, and does no DNS, so the parsing can be tested exhaustively with no
+## network and no socket — `tools/invite_codes.gd`. The lookup is a separate
+## step in `_resolve_public_address`.
+static func parse_public_address(raw: String) -> Dictionary:
+	# `strip_escapes` takes out every control character wherever it sits,
+	# which covers the newline a clipboard adds; spaces go separately.
+	var text := raw.strip_escapes().replace(" ", "")
+	# Exactly one colon. Zero is a bare hostname with no port, which cannot be
+	# guessed at — playit allocates the public port and it is never 27015. Two
+	# or more is an IPv6 address, which this format cannot carry and the
+	# six-byte code could not hold anyway.
+	var parts := text.split(":")
+	if parts.size() != 2:
+		return {}
+	var host := String(parts[0])
+	var port_text := String(parts[1])
+	if host.is_empty() or not _is_digits(port_text):
+		return {}
+	var port := port_text.to_int()
+	if port < 1 or port > 65535:
+		return {}
+	return {"host": host, "port": port}
+
+
+## Is this already an address, rather than a name that has to be looked up?
+##
+## Used twice: to skip the DNS lookup when a host types an IP straight in, and
+## to check what came *back* from a lookup, since the invite code has four bytes
+## for an address and anything else has to be refused rather than truncated.
+static func is_ipv4_literal(address: String) -> bool:
+	var octets := address.split(".")
+	if octets.size() != 4:
+		return false
+	for octet: String in octets:
+		if not _is_digits(octet) or octet.length() > 3 or octet.to_int() > 255:
+			return false
+	return true
+
+
+## `String.is_valid_int()` accepts a leading sign, which is not a thing an
+## octet or a port number has.
+static func _is_digits(text: String) -> bool:
+	if text.is_empty():
+		return false
+	for c in text:
+		if c < "0" or c > "9":
+			return false
+	return true
+
+
+## Work out, once, what endpoint this lobby advertises.
+##
+## Once is the point. `IP.resolve_hostname` blocks for the length of a DNS round
+## trip, and `invite_code()` is called from `lobby.gd::_refresh_invite`, which
+## runs on every roster change — so resolving there would freeze the lobby for a
+## moment every single time somebody joined or readied up. The tunnel's address
+## does not change while a lobby is open, so this is called where it can be
+## called exactly once: when the port is bound.
+func _resolve_public_address() -> void:
+	_clear_public_address()
+	if ignore_public_address:
+		return
+	var typed := String(Settings.get_value("public_address")).strip_edges()
+	if typed.is_empty():
+		return
+	var parsed := parse_public_address(typed)
+	if parsed.is_empty():
+		_public_problem = "PUBLIC ADDRESS IS NOT HOST:PORT — USING LAN"
+		return
+	var host: String = parsed["host"]
+	if is_ipv4_literal(host):
+		# No lookup to do, and none wanted: a host who typed the tunnel's IP
+		# rather than its name should not be made to wait on a resolver.
+		_public_ip = host
+		_public_port = parsed["port"]
+		return
+	var resolved := IP.resolve_hostname(host, IP.TYPE_IPV4)
+	if not is_ipv4_literal(resolved):
+		# Godot hands back an empty string for a name that does not resolve.
+		# The literal check also catches an IPv6 answer, which is well-formed
+		# and useless to a code with four bytes for an address.
+		_public_problem = "PUBLIC ADDRESS DID NOT RESOLVE — USING LAN"
+		return
+	_public_ip = resolved
+	_public_port = parsed["port"]
+
+
+func _clear_public_address() -> void:
+	_public_ip = ""
+	_public_port = 0
+	_public_problem = ""
+
+
+## True when the invite code is pointing at the tunnel rather than at an
+## interface on this machine.
+func using_public_address() -> bool:
+	return not _public_ip.is_empty() and _public_port > 0
+
+
+## Empty when there is nothing to say, which includes the ordinary case of no
+## public address configured at all. Otherwise the line the lobby prints in
+## place of its scope caption — a typed address that could not be used is a
+## silent failure otherwise, because the fallback code is perfectly valid and
+## simply does not reach anybody outside the building.
+func invite_problem() -> String:
+	return _public_problem
+
+
+# ------------------------------------------------------------- the code ---
+
 ## The address other players should dial.
 func local_ipv4() -> String:
 	return select_ipv4(IP.get_local_interfaces())
@@ -655,6 +821,8 @@ func local_ipv4() -> String:
 ## who can see that a code is LAN-only does not spend ten minutes wondering why
 ## a friend three states away cannot use it.
 func invite_scope() -> String:
+	if using_public_address():
+		return "INTERNET (PLAYIT)"
 	var address := local_ipv4()
 	if _is_mesh_range(address):
 		return "TAILNET"
@@ -666,6 +834,13 @@ func invite_scope() -> String:
 ## The invite code to hand to other players. Reaches as far as `invite_scope()`
 ## says it does.
 func invite_code() -> String:
+	if using_public_address():
+		# The *public* port, not the bound one. They are different numbers and
+		# have to be: playit allocates the public side and forwards it to a
+		# local port the host configures in the agent, which this game requires
+		# to be DEFAULT_PORT. So the socket listens on 27015 and the code says
+		# 41235, and neither half needs to know about the other.
+		return InviteCode.encode(_public_ip, _public_port)
 	return InviteCode.encode(local_ipv4(), _bound_port if _bound_port > 0 else DEFAULT_PORT)
 
 

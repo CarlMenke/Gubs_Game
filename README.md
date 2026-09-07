@@ -13,9 +13,10 @@ nearby out into the open for about a second.
 
 ---
 
-**Just want to play it?** See [`docs/PLAYING.md`](docs/PLAYING.md) — install
-Tailscale, run one `.exe`, paste an invite code. The rest of this file is
-about building it from source.
+**Just want to play it?** See [`docs/PLAYING.md`](docs/PLAYING.md) — run one
+`.exe` and paste an invite code. Only the person hosting has any setup to do,
+and it is one playit.gg tunnel. The rest of this file is about building it from
+source.
 
 ---
 
@@ -87,10 +88,17 @@ The host clicks **Host** and gets a ten-character **invite code** like
 
 That code *is* the host's address — the IP and port, Crockford base32, no
 backend anywhere. This is what makes it work on a LAN, over a VPN, or across the
-internet with a single forwarded port (**UDP 27015**), with nothing to run and
-no account to make. It is also the trade-off: a purely random key would hide the
-host's IP, but would need a relay server to turn keys back into addresses. See
-**D-005** — this is a product decision worth revisiting, not a settled one.
+internet, with nothing of ours to run and no account to make with us. It is also
+the trade-off: a purely random key would hide the host's IP, but would need a
+relay server to turn keys back into addresses. See **D-005** — this is a product
+decision worth revisiting, not a settled one.
+
+For play across the internet the host sets a **public address** in Settings —
+the `host:port` of a [playit.gg](https://playit.gg) UDP tunnel forwarding to
+local **27015** — and the code then carries that endpoint instead of a local
+one. Players install nothing; the host runs one agent. Leaving it blank is the
+old behaviour, which is a tailnet address if Tailscale is up and a LAN address
+otherwise. See **D-028**.
 
 One player hosts and plays at the same time, and the host is authoritative: it
 owns every kill, score and respawn. Movement is client-authoritative so your own

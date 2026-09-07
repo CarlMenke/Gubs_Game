@@ -36,8 +36,10 @@ what it is and what the real fix costs.
 and a universal `build/macos/GUB.app` that boots clean. See the README.
 
 The whole of it is merged to `main` and tagged **`v0.1.0`**, so Phase 7 is closed
-out. What is left below is play-testing and one networking feature, not build or
-release work.
+out. The one networking feature that was outstanding — hosting across the
+internet without every player installing Tailscale — is done (D-028) and needs a
+real tunnel and a real second machine to confirm. What is left below is
+play-testing, not build or release work.
 
 ### What the two integrations each found
 
@@ -163,14 +165,22 @@ person driving it.
 
 Worth knowing before that session:
 
-- The **invite code is the host's IP and port**, Crockford base32 (D-005). It
-  works on a LAN, over a VPN, or over the internet with **UDP 27015** forwarded.
-  No backend. It also means the code leaks the host's address, which is a
+- The **invite code is an IP and port**, Crockford base32 (D-005). Which one
+  depends on whether the host has set a **public address** in Settings: blank
+  and it is this machine's best local address (tailnet ahead of LAN), set and it
+  is a resolved playit.gg tunnel endpoint, which is the internet path and the
+  only one where nobody but the host installs anything (D-028). No backend
+  either way. It also means the code leaks the host's address, which is a
   product decision worth confirming rather than a settled one.
+- The tunnel's **local** port must be **27015**; its public port is whatever
+  playit allocated, and that is the one the code carries. Getting that pair
+  backwards is the one setup mistake the game cannot detect for you.
 - macOS may raise a firewall prompt the first time a Godot binary binds 27015.
 - Godot's user data is keyed on **project name, not path**, so every checkout of
   this project on one machine shares `user://settings.cfg`. A name typed into
-  one worktree's menu changes what another one's testbed prints.
+  one worktree's menu changes what another one's testbed prints, and a public
+  address typed into one would have sent `tools/net_test.sh` to a real resolver
+  — hence `Net.ignore_public_address` (D-028).
 
 ---
 
@@ -185,7 +195,7 @@ Three tiers, because three different kinds of claim need three different proofs
 | `tools/cursor_flow.tscn` | entering a match takes the mouse, and leaving gives it back |
 | `tools/playthrough.tscn` | the whole path, menu to results, 39 assertions |
 | `tools/match_rules.tscn` | 60 assertions across 9 scoring scenarios |
-| `tools/invite_codes.tscn` | 2619 assertions over 1296 endpoints |
+| `tools/invite_codes.tscn` | 2675 assertions over 1296 endpoints, plus the host's typed public address |
 | `tools/ragdoll_stability.tscn` | a corpse is still a corpse 150 ticks later |
 | `tools/combat_range.tscn` | the real match path: a spear, a mushroom, a lure |
 | `tools/net_loopback.tscn` | two processes, one socket, including a *client* using all three abilities. **Not in the gate** — it binds a port |

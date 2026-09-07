@@ -25,6 +25,7 @@ func _ready() -> void:
 	_normalisation()
 	_rejects_rubbish()
 	_address_selection()
+	_public_address()
 
 	print("invite_codes: %d checks, %d failures" % [_checks, _failures])
 	print("invite_codes: %s" % ("PASS" if _failures == 0 else "FAIL"))
@@ -204,3 +205,84 @@ func _address_selection() -> void:
 		_check("172.%d is not a LAN, so LAN wins" % octet,
 			Net.select_ipv4([{"name": "e", "friendly": "", "addresses": ["172.%d.0.9" % octet]}, lan]),
 			"192.168.1.50")
+
+
+## The host's typed public address, which is the third way an endpoint can end
+## up in a code and the only one a person enters by hand. Parsing is pure and
+## does no DNS on purpose — see `Net.parse_public_address` — so all of this runs
+## with no network and no socket, exactly like everything above it.
+##
+## The failure it guards against is `_address_selection`'s failure arriving by a
+## different road: a half-understood address still produces a well-formed
+## ten-character code, and the join then fails looking like the host is offline.
+func _public_address() -> void:
+	print("-- public address")
+
+	# The shape playit hands out, which is what will be pasted 99 times in 100.
+	var good := Net.parse_public_address("angry-gub.at.ply.gg:41235")
+	_check("a playit address parses", good.get("host"), "angry-gub.at.ply.gg")
+	_check("and keeps its port", good.get("port"), 41235)
+
+	# Clipboards add whitespace at both ends, and a dashboard that puts the
+	# hostname and the port in separate spans adds it in the middle. None of it
+	# should cost anybody a lobby.
+	var padded := {
+		"leading and trailing spaces": "  angry-gub.at.ply.gg:41235  ",
+		"spaces around the colon": "angry-gub.at.ply.gg : 41235",
+		"a trailing newline": "angry-gub.at.ply.gg:41235\n",
+		"a leading tab": "\tangry-gub.at.ply.gg:41235",
+	}
+	for label: String in padded:
+		var parsed := Net.parse_public_address(padded[label])
+		_check("%s is ignored" % label, parsed.get("host"), "angry-gub.at.ply.gg")
+		_check("%s does not eat the port" % label, parsed.get("port"), 41235)
+
+	# An IPv4 literal is accepted as-is and with no lookup: a host who typed the
+	# tunnel's address rather than its name should not wait on a resolver.
+	var literal := Net.parse_public_address("147.185.221.19:41235")
+	_check("an IPv4 literal parses", literal.get("host"), "147.185.221.19")
+	_check("an IPv4 literal keeps its port", literal.get("port"), 41235)
+	_check("and is recognised as one, so no lookup happens",
+		Net.is_ipv4_literal("147.185.221.19"), true)
+	_check("a hostname is not", Net.is_ipv4_literal("angry-gub.at.ply.gg"), false)
+	_check("a partial address is not", Net.is_ipv4_literal("147.185.221"), false)
+	_check("an octet over 255 is not", Net.is_ipv4_literal("147.185.221.256"), false)
+	_check("a signed octet is not", Net.is_ipv4_literal("147.185.221.+9"), false)
+	_check("an empty octet is not", Net.is_ipv4_literal("147.185..19"), false)
+	_check("IPv6 is not", Net.is_ipv4_literal("2606:4700:4700::1111"), false)
+
+	# Everything that is not an address. Each must come back empty rather than
+	# half-filled: `_resolve_public_address` treats a non-empty answer as usable.
+	var rubbish := {
+		"empty": "",
+		"only whitespace": "   ",
+		"no port": "angry-gub.at.ply.gg",
+		"a bare colon": ":",
+		"no host": ":41235",
+		"nothing after the colon": "angry-gub.at.ply.gg:",
+		"a word for a port": "angry-gub.at.ply.gg:port",
+		"a decimal port": "angry-gub.at.ply.gg:412.35",
+		"a negative port": "angry-gub.at.ply.gg:-41235",
+		"port zero": "angry-gub.at.ply.gg:0",
+		"port past the top": "angry-gub.at.ply.gg:65536",
+		"a URL": "udp://angry-gub.at.ply.gg:41235",
+		"a bare IPv6 address": "2606:4700:4700::1111",
+		"two ports": "angry-gub.at.ply.gg:41235:41236",
+	}
+	for label: String in rubbish:
+		_check("%s is rejected" % label,
+			Net.parse_public_address(rubbish[label]).is_empty(), true)
+
+	# The port range, at both edges and in the middle.
+	for port: int in [1, 27015, 65535]:
+		_check("port %d is allowed" % port,
+			Net.parse_public_address("h:%d" % port).get("port"), port)
+
+	# What the code ends up carrying. The *public* port goes in, not the local
+	# one the agent forwards to: they are different numbers by design (D-028),
+	# and encoding the local one would hand out a code that dials the tunnel's
+	# public IP on a port nothing out there is listening on.
+	var resolved := "147.185.221.19"
+	var round_trip := InviteCode.decode(InviteCode.encode(resolved, 41235))
+	_check("a tunnel endpoint survives the codec", round_trip.get("ip"), resolved)
+	_check("with the public port intact", round_trip.get("port"), 41235)

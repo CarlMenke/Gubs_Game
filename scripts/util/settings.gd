@@ -12,6 +12,11 @@ const DEFAULTS := {
 	# identity
 	"player_name": "",
 	"last_invite_code": "",
+	# network — the playit.gg tunnel address this machine hands out when it
+	# hosts, as `host:port`. Blank means "use whatever interface I am on", which
+	# is the LAN/Tailscale behaviour and the right default for everyone who is
+	# not the host. See docs/DECISIONS.md D-028.
+	"public_address": "",
 	# input
 	"mouse_sensitivity": 0.25,
 	"invert_y": false,

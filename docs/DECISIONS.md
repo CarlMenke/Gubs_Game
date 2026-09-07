@@ -955,3 +955,110 @@ and your next one. `tools/smoke_test.sh` moved its ragdoll grab from tick 160 to
 155, which is now a narrow window with a reason at each end: `ragdoll_stability`
 does not print its verdict until tick 150, and the corpse starts fading at 160
 and is gone by 208.
+
+## D-028 — The host runs a tunnel, so that nobody else has to install anything
+Until now the only way to play this across the internet was `docs/PLAYING.md`'s
+first instruction: *everybody* installs Tailscale, makes an account, and joins
+one tailnet. That works — D-005's code carries whatever address `select_ipv4()`
+picks, and a tailnet address is a real routable address that reaches both across
+the country and across a shared LAN. It is also five people's setup before
+anyone throws a spear, and the free plan caps at six people against a lobby cap
+of eight, so a full game needed a paid seat.
+
+The designers' framing was the whole design: *"then only the host has to set
+up"*. The host is already the person doing something different from everyone
+else — they open the lobby, they read out the code — so they are the right
+person to carry the cost. Everyone else should download one `.exe` and paste
+ten characters, which is what they were promised in the first place.
+
+**What was added.** A persisted setting, `public_address`, a String, default
+`""`, edited in Settings → Network. The host puts the address of a
+[playit.gg](https://playit.gg) UDP tunnel in it — `angry-gub.at.ply.gg:41235` —
+and when the lobby opens, `Net.invite_code()` encodes that endpoint instead of a
+local one. `invite_scope()` says `INTERNET (PLAYIT)`. Blank is the old
+behaviour exactly, tailnet and LAN and all, which is what everybody who is not
+hosting will always have.
+
+playit was chosen over the obvious alternative of "tell the host to forward
+UDP 27015 on their router" because port forwarding is unavailable to a growing
+share of players (carrier-grade NAT), is different on every router, and cannot
+be checked from inside the game. A tunnel agent is one download, and it either
+says connected or it does not.
+
+**The local port is fixed at 27015 and the public port is not.** playit
+allocates the outside port; the inside port is whatever the host configures the
+agent to forward to. Making the game bind whatever the tunnel's public port
+happens to be would be backwards — the two numbers are on opposite sides of the
+tunnel and nothing connects them. So the game keeps binding `DEFAULT_PORT`, the
+docs require the tunnel's local port to be 27015, and the *public* port is what
+goes in the code. That is the one setup step a host can get wrong in a way the
+game cannot detect, which is why it is in a table in `docs/PLAYING.md` and in
+the caption under the settings field.
+
+**Why the code carries the resolved IP and not the hostname.** The tempting
+change is to widen the invite code so it can hold `angry-gub.at.ply.gg` and let
+the joiner resolve it. We did not, for three reasons:
+
+1. **Six bytes is the format.** Four for the address, two for the port, which is
+   exactly ten Crockford characters with no padding — every code the same
+   length, which is most of what makes a code readable down a phone line
+   (D-005). A hostname is 20-ish bytes and variable, so codes become long,
+   variable-length, and no longer the thing this project promised.
+2. **The lookup belongs on the side that can report it.** Resolving on the
+   host means one machine does it, once, at a moment when there is a lobby
+   caption to say it failed. Resolving on the joiner's side means every joiner
+   does it, in the middle of a dial, where a DNS failure is indistinguishable
+   from a host who is not there.
+3. **playit's addresses are stable per region.** The hostname resolves to a
+   playit anycast IPv4 that does not move under a live tunnel.
+
+The known risk, stated plainly: **if playit re-homes a tunnel to a different
+IP, every code already handed out points at the old one.** The fix is the fix
+for a stale code, which this game has always had and already documents — the
+host reopens the lobby and reads out a fresh one, and reopening is what
+re-runs the lookup. Nothing new to learn, and the same failure the LAN path has
+when a DHCP lease changes.
+
+**Resolution happens once, when the port is bound — not in `invite_code()`.**
+`IP.resolve_hostname` blocks for a DNS round trip, and `lobby.gd::_refresh_invite`
+calls `invite_code()` on every roster change. Resolving there would freeze the
+lobby for a moment every time somebody joined, readied up, or switched team. The
+tunnel's address does not change while a lobby is open, so it is resolved in
+`host_lobby()` and cached with the port for the life of the session.
+
+**Parsing is separate from resolving, and static.** `Net.parse_public_address`
+takes a String and returns `{host, port}` or nothing: it strips whitespace
+anywhere (this arrives via a clipboard), demands exactly one colon and a port in
+1..65535, and touches no network. That makes it exhaustively testable with no
+socket, which is what `tools/invite_codes.gd` does with it — a valid address,
+whitespace in four places, an IPv4 literal (accepted with no lookup at all), and
+fourteen kinds of rubbish including a URL, an IPv6 address, and a bare hostname
+with no port. `Net.is_ipv4_literal` does double duty: it skips the resolver for
+a host who typed an IP, and it checks what came *back* from the resolver, since
+a well-formed IPv6 answer will not fit in four bytes and has to be refused
+rather than truncated.
+
+**Failure is loud, because the fallback is silent.** A public address that does
+not parse or does not resolve falls back to the local address, which produces a
+perfectly valid code that simply does not leave the building — the exact shape
+of failure D-005's address selection was written to avoid. So `invite_problem()`
+returns a line, and the lobby prints it *instead of* the scope caption:
+`PUBLIC ADDRESS DID NOT RESOLVE — USING LAN`. There is one line of space there
+and this is the more urgent thing for it to say.
+
+**Nothing changed on the joining side, and that is the point.** A resolved
+playit anycast address is four bytes and a port, which is what
+`ENetMultiplayerPeer.create_client` has always been given; ENet speaks plain UDP
+to whatever it is pointed at, and a tunnel is transparent to it. The seam
+`docs/ARCHITECTURE.md` describes did not have to move.
+
+**One trap in the tooling.** Godot keys its user data directory on the project
+*name*, not the path, so every checkout and every process of this project shares
+one `user://settings.cfg` — the thing that already forced `tools/net_loopback.gd`
+to set player names explicitly. `public_address` lands in that same file, so a
+developer who has set up a tunnel for a playtest would find `tools/net_test.sh`
+resolving their tunnel's hostname over real DNS and encoding a public endpoint
+into a loopback test. `Net.ignore_public_address` exists for that, set by the
+harness before it hosts. Turned off explicitly rather than by clearing the
+setting, because clearing it would write to the file the person running the test
+is about to host a real game with.

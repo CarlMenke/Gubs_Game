@@ -123,6 +123,15 @@ func _build() -> void:
 	_toggle_row("V-Sync", "vsync")
 	_toggle_row("Fullscreen", "fullscreen")
 
+	_section("Network")
+	_text_row("Public address", "public_address", "name.at.ply.gg:41235")
+	var net_note := Label.new()
+	net_note.name = "PublicAddressNote"
+	net_note.theme_type_variation = "TinyLabel"
+	net_note.text = "Public address (playit.gg) — leave blank to use LAN/Tailscale.\nOnly the host needs one. The tunnel must be UDP, forwarding to local port %d." % Net.DEFAULT_PORT
+	net_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_sections.add_child(net_note)
+
 	_section("Controls")
 	for entry: Array in CONTROL_REFERENCE:
 		_reference_row(entry[0], entry[1])
@@ -219,6 +228,30 @@ func _choice_row(label_text: String, key: String, options: Array) -> void:
 			apply_quality(index))
 
 
+## The only free-text row in the panel. It lives here rather than on the lobby
+## screen because it is a property of this machine, not of a session: the person
+## who hosts sets it once when they set up their tunnel and never looks at it
+## again, which is exactly the life of a volume slider.
+func _text_row(label_text: String, key: String, placeholder: String) -> void:
+	var row := _row(label_text)
+	var field := LineEdit.new()
+	# Named so `tools/ui_range.gd` can put a plausible address in it for a
+	# screenshot without going through `Settings` and persisting one.
+	field.name = "PublicAddress"
+	field.text = String(Settings.get_value(key))
+	field.placeholder_text = placeholder
+	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	field.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(field)
+	_readouts[key] = field
+	# Written on every keystroke, not on Enter or on focus loss. `Settings`
+	# persists each change, and this panel is explicitly not a form with a save
+	# button — a host who types an address and clicks Done would otherwise have
+	# typed nothing at all, and would find out at the worst possible moment.
+	field.text_changed.connect(func(value: String) -> void:
+		Settings.set_value(key, value))
+
+
 func _reference_row(label_text: String, action: String) -> void:
 	var row := _row(label_text)
 	var keys := Label.new()
@@ -256,7 +289,15 @@ func _on_setting_changed(key: String, _value: Variant) -> void:
 func _sync_control(key: String) -> void:
 	var node: Variant = _readouts.get(key)
 	var value: Variant = Settings.get_value(key)
-	if node is CheckButton:
+	if node is LineEdit:
+		# Only when it actually differs. Assigning `text` moves the caret to the
+		# end, so writing it back on every `changed` would fight the person
+		# typing into it — this control is the one thing here that emits the
+		# signal it also listens to.
+		var field := node as LineEdit
+		if field.text != String(value):
+			field.text = String(value)
+	elif node is CheckButton:
 		(node as CheckButton).set_pressed_no_signal(bool(value))
 	elif node is OptionButton:
 		(node as OptionButton).selected = int(value)
@@ -272,9 +313,10 @@ func _sync_control(key: String) -> void:
 
 func _restore_defaults() -> void:
 	for key: String in Settings.DEFAULTS:
-		# Identity is not a display setting; wiping the name someone typed
-		# because they nudged a volume slider would be its own bug.
-		if key == "player_name" or key == "last_invite_code":
+		# Identity and the host's tunnel address are not display settings;
+		# wiping something someone typed because they nudged a volume slider
+		# would be its own bug. The field is right there if they want it gone.
+		if key in ["player_name", "last_invite_code", "public_address"]:
 			continue
 		Settings.set_value(key, Settings.DEFAULTS[key])
 	Settings.apply_video()
