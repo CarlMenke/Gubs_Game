@@ -22,8 +22,9 @@ photogrammetry-style mesh with a 4K texture. Eight networked Gubs plus spears, d
 mushrooms and lures would be 5M+ triangles per frame before shadows — untenable.
 
 `tools/decimate_assets.py` performs quadric-error decimation (`fast_simplification`) and
-re-attaches UVs, skin joints and weights by nearest-source-vertex transfer, then rewrites
-a clean `.glb` into `art/generated/`. Sources in `assets/` are never modified — the
+re-attaches UVs by seam-aware nearest-source-vertex transfer, then rewrites a clean `.glb`
+into `art/generated/`. Skin weights are *not* transferred — they are solved on the
+decimated mesh itself, for the reason in D-023. Sources in `assets/` are never modified — the
 pipeline is re-runnable and the raw art stays pristine.
 
 Targets: Gub 18k tris (skinned, drawn up to 8× plus shadows), Spear 4k, Lure 6k,
@@ -546,3 +547,101 @@ What this still cannot tell anyone: latency. Loopback has none, so nothing here
 says whether a client-authoritative Gub *feels* right on a real link, or whether
 the lure's client-side pull reads as fair to the person being pulled. That needs
 two machines and remains the largest untested thing in the project.
+
+## D-023 — The Gub's skin was rebound, because the tearing was in the weights
+D-008 fixed what was wrong with the Gub's *clips*. It did not touch what was
+wrong with its *bind*, and that was the larger problem: at a dead run, triangles
+detached from the Gub's back and hung in the air behind it.
+
+**A number first.** "It tears" is not something you can fix twice and compare,
+so `tools/rig_report.py` runs the same linear-blend skinning the GPU runs, over
+every clip at 60fps, and reports four things: how far mesh edges stretch, the
+third derivative of vertex motion (which spikes at a bad keyframe and at nothing
+else), the gap between a looping clip's first and last pose, and how differently
+the left and right halves are bound. On the asset as it shipped, 19% of vertices
+sat on an edge that stretched past 1.5× its rest length.
+
+Ratios turned out to be a poor headline: the mesh has edges a fifth the median
+length, where half a millimetre of drift reads as "6×". The metric that matches
+what an eye sees is edge growth measured against the body's own size, and that
+is what `torn` counts.
+
+**What was actually wrong.** Seven of the twenty-nine bones — `breast.L/R`,
+`pelvis.L/R`, `heel.02.L/R` and `spine.005` — rotate by exactly 0.0° in every
+clip. They are Rigify helpers, meant for posing and never for deforming.
+Automatic weights does not know that and gave them 19% of the mesh, including a
+band of chest either side of the armpit. That band stayed welded to the ribcage
+while the vertices beside it, bound to `upper_arm.L`, swung through 89°. That
+one boundary was the worst edge in the file, at 99× its rest length.
+
+The same blindness bound the right heel to `heel.02.R` and the left to `foot.L`,
+so the two feet deformed differently — one bending at the ankle, the other
+pivoting around a point behind it.
+
+**What replaced it** (`tools/rig_clean.py`). The helpers are unbound and the
+skin is computed rather than painted: label each vertex with the nearest bone
+*segment*, then delete any label region that is not connected across the surface
+to the bone it names — the chest can only reach the arm bone across open air, so
+that label is a lie — then diffuse the labels by solving `(A + a L) W = A P` with
+the cotangent Laplacian. Clamping the cotangent weights at zero keeps that an
+M-matrix, which is the guarantee that no weight overshoots into [0,1]; and since
+`L` annihilates constants, the rows sum to exactly 1 with no renormalising.
+Finally left and right are averaged so the Gub deforms symmetrically.
+
+`spine.005` is deliberately left bound. It is as motionless as the rest, but it
+is a link in the neck chain rather than a helper hanging off one, and binding it
+is what makes the neck's falloff graded instead of a step halfway up.
+
+**The bind is solved on the decimated mesh, not transferred onto it.** This
+reverses part of D-003. A nearest-source-vertex transfer of a smooth weight
+field does not arrive smooth — doing it that way put back a tenth of the tearing
+this removes — so `decimate_assets` now carries only UVs across and binds the
+finished 18k-triangle geometry directly. The seam-aware transfer still earns its
+place for UVs, which genuinely are per-corner data with no other source.
+
+**Three more things were wrong with the curves**, beyond D-008's three:
+
+- **Quaternion sign flips**, 44 of them. A quaternion and its negation are the
+  same rotation and the exporter emits both; between two keys that straddle the
+  sign, interpolating the *numbers* takes the long way round the sphere.
+- **Corrupted keyframes.** `toe.L` in `SlowRun` turns 155° in one 60th of a
+  second and comes back — an axis flip in whatever produced the bake.
+  `forearm.L` in `Jump` holds still to within half a degree for five frames and
+  then leaves at 51° per frame, a pose snapped in with no ease at all. Both are
+  the same measurement: an angular acceleration nobody authored. Keys are eased
+  back toward the local trend only in proportion to how far past a per-track
+  threshold they sit, so ordinary motion is left bit-identical — the median
+  acceleration across every track is unchanged at 1.87°, while the worst falls
+  from 122° to 18°.
+- **Two thirds of every clip was dead.** 474 of 696 channels never leave the
+  rest pose — every `scale` track, and every `translation` but the root's. And
+  because Blender bakes from frame 1, each clip's first key sat one frame in,
+  so a looping clip held its opening pose an extra 60th of a second every time
+  round: a stutter once per stride at a 32-frame sprint.
+
+**`Crouch` was the T-pose.** It shipped as two keyframes of the bind pose, so a
+crouching Gub stood bolt upright with its arms out. There is no other crouched
+motion in the file, so the pose is taken from `CrouchWalk` at the frame where the
+skeleton is closest to its own mirror image — the passing pose, legs together —
+rather than by guessing which frame of a cycle that is. Its ground position comes
+from the clip's start, not from that frame, or the still pose would stand a
+stride and a half to one side of the body carrying it.
+
+**Result**, on the shipped `art/generated/gub.glb`:
+
+| | before | after |
+|---|---|---|
+| edges torn (grown >2% of body) | 1294 | 257 |
+| worst edge growth | 7.66% of body | 4.42% |
+| worst vertex jerk | 0.419 | 0.119 |
+| worst angular acceleration | 122.4°/frame² | 18.5° |
+| worst single-frame turn | 154.7° | 45.9° |
+| quaternion sign flips | 44 | 0 |
+| animation channels | 696 | 222 |
+| file size | 2.17 MB | 1.97 MB |
+
+What none of that proves is that it *looks* right, so it was also checked by eye
+in Godot at the worst frame of each clip. The flying triangles are gone; the hip
+reads as one surface; the crouch crouches. The remaining 257 torn edges are at
+the outside of hard bends, which is where linear-blend skinning always loses and
+where the fix is a corrective shape, not a better weight.

@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fast_simplification  # noqa: E402
 from gltf_io import ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER, Gltf, GltfBuilder  # noqa: E402
+import rig_clean  # noqa: E402
 from rig_math import Rig, quat_from_y_rotation, quat_multiply  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -233,10 +234,10 @@ def align_clip_facing(doc, source, root_index, tolerance_degrees=1.5):
             if target["node"] != root_index or target["path"] != "rotation":
                 continue
             sampler = anim["samplers"][channel["sampler"]]
-            values = np.array(source.read_accessor(sampler["output"]), dtype=np.float64)
+            values = np.array(sampler["_output"], dtype=np.float64)
             for i in range(len(values)):
                 values[i] = quat_multiply(correction, values[i])
-            sampler["_override_output"] = values.astype(np.float32)
+            sampler["_output"] = values
             applied = True
         if applied:
             log("  facing    %-12s rotated %+6.1f deg to match the rest pose"
@@ -270,8 +271,8 @@ def strip_root_motion(doc, source, root_index, bob_threshold=0.5):
             if target["node"] != root_index or target["path"] != "translation":
                 continue
             sampler = anim["samplers"][channel["sampler"]]
-            times = np.asarray(source.read_accessor(sampler["input"]), dtype=np.float64)
-            values = np.array(source.read_accessor(sampler["output"]), dtype=np.float32)
+            times = np.asarray(sampler["_input"], dtype=np.float64)
+            values = np.array(sampler["_output"], dtype=np.float64)
             if values.ndim != 2 or len(values) == 0:
                 continue
 
@@ -290,7 +291,7 @@ def strip_root_motion(doc, source, root_index, bob_threshold=0.5):
             else:
                 log("  root motion %-12s locked XZ (%.2f u travelled), kept %.2f u of bob"
                     % (anim.get("name", "?"), travel, vertical))
-            sampler["_override_output"] = values
+            sampler["_output"] = values
     return speeds
 
 
@@ -367,8 +368,6 @@ def process(name, src_path, target_tris, max_texture):
     uv = np.ascontiguousarray(g.read_accessor(attrs["TEXCOORD_0"]), dtype=np.float32)
     faces = np.ascontiguousarray(g.read_accessor(prim["indices"]).reshape(-1, 3), dtype=np.int64)
     skinned = "JOINTS_0" in attrs
-    joints = g.read_accessor(attrs["JOINTS_0"]) if skinned else None
-    weights = g.read_accessor(attrs["WEIGHTS_0"]) if skinned else None
 
     lo, hi = pos.min(axis=0), pos.max(axis=0)
     diagonal = float(np.linalg.norm(hi - lo))
@@ -406,13 +405,10 @@ def process(name, src_path, target_tris, max_texture):
     corner_pos = new_pos[new_faces].reshape(-1, 3)
     corner_uv = uv[corner_src].reshape(-1, 2)
 
-    per_corner = [corner_pos, corner_uv]
-    if skinned:
-        corner_joints = joints[corner_src].reshape(-1, 4)
-        corner_weights = weights[corner_src].reshape(-1, 4)
-        per_corner += [corner_joints, corner_weights]
-
-    indices, pick = dedup_corners(per_corner)
+    # Only the UVs ride along. The skin is solved from scratch on the
+    # finished geometry below, because a nearest-vertex transfer of a
+    # smooth weight field arrives rough at the other end.
+    indices, pick = dedup_corners([corner_pos, corner_uv])
     out_pos = corner_pos[pick]
     out_uv = corner_uv[pick]
     out_faces = indices.reshape(-1, 3).astype(np.int64)
@@ -428,11 +424,12 @@ def process(name, src_path, target_tris, max_texture):
         % (len(out_pos), len(out_faces)))
 
     if skinned:
-        out_joints = corner_joints[pick].astype(np.uint8)
-        w = corner_weights[pick].astype(np.float32)
-        total = w.sum(axis=1, keepdims=True)
-        total[total == 0.0] = 1.0
-        out_weights = w / total  # glTF requires weights to sum to 1
+        skin = g.doc["skins"][0]
+        out_joints, out_weights = rig_clean.bind_mesh(
+            g.doc, skin["joints"],
+            np.asarray(g.read_accessor(skin["inverseBindMatrices"]),
+                       dtype=np.float64).reshape(-1, 4, 4).transpose(0, 2, 1),
+            out_pos.astype(np.float64), out_faces)
 
     # 4. normals ----------------------------------------------------------
     out_normal = smooth_normals(out_pos, out_faces)
@@ -468,15 +465,13 @@ def process(name, src_path, target_tris, max_texture):
         clean_animations(b.doc, g.doc)
         root_joint = find_root_joint(b.doc)
         if root_joint is not None:
+            # Curves move into plain arrays here and stay there: the three
+            # passes below all rewrite them, and each one reading the
+            # buffer afresh would undo the last.
+            rig_clean.clean_clips(b.doc, g, root_joint)
             align_clip_facing(b.doc, g, root_joint)
             clip_speeds = strip_root_motion(b.doc, g, root_joint)
-    for anim in b.doc.get("animations", []):
-        for sampler in anim["samplers"]:
-            for slot in ("input", "output"):
-                override = sampler.pop("_override_output", None) if slot == "output" else None
-                src = override if override is not None else g.read_accessor(sampler[slot])
-                arr = np.ascontiguousarray(src, dtype=np.float32)
-                sampler[slot] = b.add_accessor(arr, bounds=(slot == "input"))
+        rig_clean.write_animations(b, b.doc)
     for image in b.doc.get("images", []):
         if "bufferView" not in image:
             continue

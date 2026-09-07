@@ -78,6 +78,11 @@ class Rig(object):
 
         Sampling is nearest-key-at-or-before, which is exact at t=0 and good
         enough anywhere else for a facing measurement.
+
+        Curves are read from `_input`/`_output` when they are there. By the time
+        `decimate_assets` measures facing, `rig_clean` has already lifted every
+        track out of the buffer and repaired it; reading the accessors again
+        would measure the damaged original.
         """
         pose = {}
         if animation is None:
@@ -86,8 +91,12 @@ class Rig(object):
             target = channel["target"]
             node_index = target["node"]
             sampler = animation["samplers"][channel["sampler"]]
-            times = np.asarray(reader.read_accessor(sampler["input"]), dtype=np.float64)
-            values = np.asarray(reader.read_accessor(sampler["output"]), dtype=np.float64)
+            if "_output" in sampler:
+                times = np.asarray(sampler["_input"], dtype=np.float64)
+                values = np.asarray(sampler["_output"], dtype=np.float64)
+            else:
+                times = np.asarray(reader.read_accessor(sampler["input"]), dtype=np.float64)
+                values = np.asarray(reader.read_accessor(sampler["output"]), dtype=np.float64)
             key = int(np.searchsorted(times, time, side="right")) - 1
             key = max(0, min(key, len(values) - 1))
             entry = pose.setdefault(node_index, {})

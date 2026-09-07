@@ -217,11 +217,15 @@ Both are committed, so you only need this if you change a source file:
 ```bash
 python tools/decimate_assets.py     # needs numpy, scipy, pillow, fast_simplification
 python tools/make_sfx.py            # needs numpy
+python tools/rig_report.py          # checks the Gub's rig; prints, changes nothing
 ```
 
 The meshes arrive at ~500k triangles each and leave at 37k total, 90 MB → 7 MB,
-with UVs and skin weights transferred back seam-aware. Sources in `assets/` are
-never modified; re-running either script is always safe.
+with UVs transferred back seam-aware. The Gub also gets its skin rebound and its
+animation curves repaired on the way through (`tools/rig_clean.py`, and D-023 for
+why); `tools/rig_report.py` is how you tell whether that worked, and is worth
+running after any change to the rig or to the source `.glb`. Sources in `assets/`
+are never modified; re-running any of these is always safe.
 
 ---
 
