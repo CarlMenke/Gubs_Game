@@ -38,6 +38,38 @@ const BURY_DEPTH := 0.12
 ## fire off, or a kill the host declined — and must not be left in them.
 const ADOPTION_GRACE := 0.75
 
+## How much brighter the spear burns while it is in the air.
+##
+## The trail says where the spear *has been*; this is what makes the spear
+## itself findable at the head of it. A thrown stick is a thin, dark, fast thing
+## against a dark forest, and the playtest verdict on that was blunt: "you can't
+## see the spear". Lighting it is a cheat and a deliberate one — the same cheat
+## as the trail, and the alternative is a weapon whose whole skill ceiling is
+## reading a flight nobody can see.
+##
+## A *multiplier* rather than an absolute, because of how everything in
+## `art/generated` is built: the models carry a **black albedo and a pre-shaded
+## emission texture**, so their entire visible colour is already emission. There
+## is no glow to switch on here, only one to turn up. The same fact rules out
+## tinting it — the material's emission operator is multiply, so handing it a
+## warm colour would *darken* the texture's blue rather than adding warmth.
+##
+## The number was picked by eye against `resources/config/default_env.tres`,
+## which tonemaps with ACES at a white point of 6.0. Values that sound bright in
+## the abstract do very little through that curve: at 1.25 the spear was
+## indistinguishable from an unlit one. Here the brightest parts of the shaft
+## clear the environment's 1.05 bloom threshold, so the spear reads as lit
+## rather than as a stick, and stops well short of a lightsaber.
+##
+## It comes off the moment the spear stops. A spear standing in the dirt or
+## sticking out of a corpse is scenery and has to read as scenery; a glowing one
+## would turn every miss into a beacon and every body into a lamp.
+const GLOW_BOOST := 3.0
+## Only reached by a surface that was not emissive to begin with. Nothing on the
+## shipping spear is, but a material with no emission has nothing to multiply and
+## would otherwise "glow" black.
+const GLOW_COLOUR := Color(1.0, 0.94, 0.76)
+
 const LAYER_WORLD := 1
 const LAYER_PLAYER := 2
 const LAYER_DEPLOYABLE := 8
@@ -61,6 +93,8 @@ var _impact_velocity: Vector3 = Vector3.ZERO
 var _model: Node3D
 var _thrower: Gub
 var _trail: SpearTrail
+## The mesh nodes currently carrying the in-flight glow override.
+var _glowing: Array[MeshInstance3D] = []
 
 
 ## Launch a spear. `direction` is expected to be normalised.
@@ -87,6 +121,7 @@ func _ready() -> void:
 	_model.rotation_degrees = Vector3(-90.0, 0.0, 0.0)
 	_model.position = Vector3(0.0, 0.0, 0.62)
 	add_child(_model)
+	_light_up()
 
 	_trail = SpearTrail.new()
 	add_child(_trail)
@@ -191,6 +226,7 @@ func _stick_in(victim: Gub, point: Vector3, bone: String) -> void:
 	_impact_velocity = _velocity
 	global_position = point + _velocity.normalized() * BURY_DEPTH
 	_velocity = Vector3.ZERO
+	_stop_glowing()
 	AudioDirector.play_3d_varied(AudioDirector.SPEAR_HIT_BODY, point)
 	if _trail != null:
 		_trail.begin_fade()
@@ -209,6 +245,7 @@ func _stick(normal: Vector3) -> void:
 	_stuck = true
 	set_process_priority(0)
 	_impact_velocity = _velocity
+	_stop_glowing()
 	AudioDirector.play_3d_varied(AudioDirector.SPEAR_HIT_WORLD, global_position)
 	if _trail != null:
 		_trail.begin_fade()
@@ -247,6 +284,61 @@ func _tick_stuck(delta: float) -> void:
 		return
 	if _model != null:
 		_model.scale = Vector3.ONE * maxf(fade, 0.01)
+
+
+## Put the flight glow on every surface of the model.
+##
+## A copy of the imported material per spear, the same way `GubRagdoll` takes
+## its own copy to fade a corpse out — and for the same reason. The imported
+## material is shared by every spear in the game, the one in your hand
+## included, so lighting *it* up would light up all of them and leave them lit.
+##
+## One small material per throw, held by the projectile and freed with it. A
+## single glowing copy cached and handed to every spear would be marginally
+## cheaper and would be a mutable global living past the end of the match, which
+## is a much worse trade than a duplicate of a material on a two-surface stick.
+func _light_up() -> void:
+	for node in _model_meshes():
+		var lit := false
+		for surface in node.mesh.get_surface_count():
+			# Null means a material this cannot copy — a shader material, say.
+			# That surface simply does not glow, rather than being replaced by
+			# something that would throw its texture away.
+			var source := node.get_active_material(surface) as BaseMaterial3D
+			if source == null:
+				continue
+			var glow := source.duplicate() as BaseMaterial3D
+			if not glow.emission_enabled:
+				glow.emission_enabled = true
+				glow.emission = GLOW_COLOUR
+				glow.emission_energy_multiplier = 1.0
+			glow.emission_energy_multiplier *= GLOW_BOOST
+			node.set_surface_override_material(surface, glow)
+			lit = true
+		if lit:
+			_glowing.append(node)
+
+
+## ...and take it off again, which is what makes a landed spear look landed.
+func _stop_glowing() -> void:
+	for node in _glowing:
+		if not is_instance_valid(node) or node.mesh == null:
+			continue
+		for surface in node.mesh.get_surface_count():
+			node.set_surface_override_material(surface, null)
+	_glowing.clear()
+
+
+func _model_meshes() -> Array[MeshInstance3D]:
+	var out: Array[MeshInstance3D] = []
+	var stack: Array[Node] = [_model]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		var mesh_node := node as MeshInstance3D
+		if mesh_node != null and mesh_node.mesh != null:
+			out.append(mesh_node)
+		stack.append_array(node.get_children())
+	return out
 
 
 func _face_travel() -> void:

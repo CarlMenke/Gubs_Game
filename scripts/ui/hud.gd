@@ -197,7 +197,10 @@ func _refresh_crosshair() -> void:
 	if combat == null:
 		_crosshair.set_state(0.0, false)
 		return
-	var total := maxf(0.01, Net.config.spear_recharge)
+	# The whole cycle, windup included — see `GubCombat.spear_cycle`. Dividing by
+	# the recharge alone would peg the ring at full through the windup and then
+	# drop it, which reads as a stall rather than as a throw being made.
+	var total := maxf(0.01, combat.spear_cycle())
 	_crosshair.set_state(clampf(combat.spear_cooldown() / total, 0.0, 1.0), alive)
 
 
@@ -210,7 +213,7 @@ func _refresh_abilities() -> void:
 		_abilities.modulate = Color(1, 1, 1, 0.25)
 		return
 	_abilities.modulate = Color(1, 1, 1, 1.0 if MatchState.is_alive(Net.local_id()) else 0.3)
-	_spear_slot.set_cooldown(combat.spear_cooldown(), config.spear_recharge)
+	_spear_slot.set_cooldown(combat.spear_cooldown(), combat.spear_cycle())
 	_mushroom_slot.set_cooldown(combat.mushroom_cooldown(), config.mushroom_cooldown)
 	_lure_slot.set_cooldown(combat.lure_cooldown(), config.lure_cooldown)
 

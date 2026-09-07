@@ -14,8 +14,20 @@ extends Node3D
 const MODEL := preload("res://art/generated/gub.glb")
 
 ## How long a corpse stays before it fades out, and how long the fade takes.
-const LINGER := 9.0
-const FADE := 1.6
+##
+## All of the value is in the flight. A spear lands, the Gub is knocked off its
+## feet, and the tumble that follows is the entire feedback for the most
+## important event in the game — so it has to finish on screen, and it takes
+## about a second and a half to do that. What comes after it is worth nothing:
+## a body lying still says only what the kill feed already said, and with eight
+## players and a three second respawn the bodies pile up in front of the fight
+## you are currently in. Nine seconds meant the corpse from your last kill was
+## still lying between you and the next one.
+##
+## So: long enough for the corpse to land and be read, then gone quickly enough
+## that nobody watches it dissolve.
+const LINGER := 2.5
+const FADE := 0.8
 
 ## How much of the spear's speed the corpse leaves with.
 ##

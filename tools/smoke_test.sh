@@ -109,15 +109,28 @@ echo
 # These need a real window: Godot's headless driver uses the dummy rasteriser
 # and renders nothing, and the physics still has to run for a corpse to fall.
 echo "rendered checks (a window will flash)"
+# 155 ticks, and the window the grab has to land in is now narrow at both ends.
+# The corpse spawns on tick 10 and `ragdoll_stability` prints its verdict on tick
+# 150, so the frame cannot be earlier than that; and a corpse now lingers 2.5 s
+# and fades over 0.8 s, so it is transparent from tick 160 and gone by 208. 155
+# is a settled, opaque body with the verdict already on the log. Anything later
+# would still pass — the check greps for a line printed before the grab — while
+# quietly photographing a corpse mid-dissolve.
 check "ragdoll survives landing" "ragdoll_stability: PASS" \
     "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
-    res://tools/ragdoll_stability.tscn "$GODOT_LOG_DIR/ragdoll.png" 160
+    res://tools/ragdoll_stability.tscn "$GODOT_LOG_DIR/ragdoll.png" 155
 # Match on the victim, not the killer. The killer's name is the local player
 # setting, which is persisted in Godot's user-data directory (shared by every
 # checkout of this project) and is whatever anyone last typed into a name box.
+#
+# 110 ticks, not the 70 it used to be. The throw is clicked on tick 20 and the
+# spear does not leave the hand until 0.57 s after that (D-025), then flies 14 m
+# at 42 m/s, so the kill lands around tick 75 and the old count stopped the run
+# before it happened. Worth saying out loud because the failure would have read
+# as a broken throw and not as a warmup that was now too short.
 check "spear kills" "killed Dummy 1" \
     "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
-    res://tools/combat_range.tscn "$GODOT_LOG_DIR/hit.png" 70 hit
+    res://tools/combat_range.tscn "$GODOT_LOG_DIR/hit.png" 110 hit
 check "lure catches" "combat_range: lure caught 1" \
     "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
     res://tools/combat_range.tscn "$GODOT_LOG_DIR/lure.png" 132 lure

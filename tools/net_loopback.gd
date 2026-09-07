@@ -94,6 +94,13 @@ const WARMUP_TIME := 1.0
 ## near its cause. `tools/playthrough.gd` carries the same note.
 const SPAWN_PROTECTION := 0.0
 
+## How far in front of itself the client aims in the abilities stage. Short on
+## purpose: the lure has to come down well inside its own radius of the thrower,
+## so that one throw exercises both the host's catch *and* the pull it sends
+## back to the victim's client. A long throw would land outside the radius and
+## the pull would never be tested at all.
+const ABILITY_AIM_DISTANCE := 4.5
+
 ## Wall-clock budgets. Generous: they exist to turn a hang into a legible
 ## failure, not to measure anything.
 const JOIN_TIMEOUT := 20.0
@@ -134,6 +141,13 @@ var _config_changes: int = 0
 var _match_started: bool = false
 ## Control-channel messages that have arrived and not been handled yet.
 var _inbox: Array[Dictionary] = []
+## Everything `spawned_items` has produced since the abilities stage started
+## watching, as `[kind, owner_peer_id]`. Recorded as it appears rather than
+## counted afterwards, because a lure removes itself a couple of seconds after
+## it fires and a spear fades out of the ground a few seconds later still.
+var _spawned: Array = []
+## Host only: peer ids a lure reported catching, from its `caught` signal.
+var _lure_caught: Array[int] = []
 
 
 func _ready() -> void:
@@ -223,6 +237,8 @@ func _run_host() -> void:
 	if ok:
 		ok = await _stage_match_start()
 	if ok:
+		ok = await _stage_abilities()
+	if ok:
 		ok = await _stage_kill()
 	# Runs whatever happened above. The client is a live process that has to be
 	# told to stop, its tally has to reach this log, and the disconnect is the
@@ -231,9 +247,9 @@ func _run_host() -> void:
 	await _finish()
 
 
-## 1/8. A client connects, and both sides notice.
+## 1/9. A client connects, and both sides notice.
 func _stage_connect() -> bool:
-	print("net_loopback: stage 1/8 — connection")
+	print("net_loopback: stage 1/9 — connection")
 	if not await _await_until("a peer to connect", JOIN_TIMEOUT,
 			func() -> bool: return not _peer_connected.is_empty()):
 		return false
@@ -250,14 +266,14 @@ func _stage_connect() -> bool:
 	return true
 
 
-## 2/8. Both sides hold the same roster, and the name got there through
+## 2/9. Both sides hold the same roster, and the name got there through
 ## `_request_join`.
 ##
 ## The client's copy is fetched over the control channel, which is this
 ## harness's own `@rpc` rather than the game's chat — if it were chat, a broken
 ## chat would look like a broken roster here and the real check would never run.
 func _stage_roster() -> bool:
-	print("net_loopback: stage 2/8 — roster replication")
+	print("net_loopback: stage 2/9 — roster replication")
 	_check("the roster has two players", Net.player_count(), 2)
 	var mine := _roster_digest()
 	var reply := await _request("roster", {}, STEP_TIMEOUT)
@@ -270,11 +286,11 @@ func _stage_roster() -> bool:
 	return true
 
 
-## 3/8. The client asked for a name the host already had, and `_unique_name`
+## 3/9. The client asked for a name the host already had, and `_unique_name`
 ## disambiguated it — on the host, where the decision belongs, and on the
 ## client, which only ever sees the answer.
 func _stage_names() -> bool:
-	print("net_loopback: stage 3/8 — name collision")
+	print("net_loopback: stage 3/9 — name collision")
 	_check("the host kept its name", Net.player_name(1), HOST_NAME)
 	_check("the host renamed the client", Net.player_name(_client_id),
 		CLIENT_UNIQUE_NAME)
@@ -290,11 +306,11 @@ func _stage_names() -> bool:
 	return true
 
 
-## 4/8. `MatchConfig.to_dict()` over the wire and `apply_dict` on the far side —
+## 4/9. `MatchConfig.to_dict()` over the wire and `apply_dict` on the far side —
 ## a flat Dictionary of primitives rather than a Resource, so that receiving one
 ## never means decoding an object (D-004).
 func _stage_config() -> bool:
-	print("net_loopback: stage 4/8 — config replication")
+	print("net_loopback: stage 4/9 — config replication")
 	var settings := Net.config.duplicate_config()
 	settings.map_seed = CONFIG_SEED
 	settings.kill_limit = CONFIG_KILL_LIMIT
@@ -321,10 +337,10 @@ func _stage_config() -> bool:
 	return true
 
 
-## 5/8. Chat in both directions, through `Net.send_chat`, asserting the text and
+## 5/9. Chat in both directions, through `Net.send_chat`, asserting the text and
 ## who it says sent it.
 func _stage_chat() -> bool:
-	print("net_loopback: stage 5/8 — chat both directions")
+	print("net_loopback: stage 5/9 — chat both directions")
 	var before := _chat.size()
 	if (await _request("say", {"text": CLIENT_CHAT}, STEP_TIMEOUT)).is_empty():
 		return false
@@ -353,11 +369,11 @@ func _stage_chat() -> bool:
 	return true
 
 
-## 6/8. Ready up, then start. `can_start_match()` refuses until every non-host
+## 6/9. Ready up, then start. `can_start_match()` refuses until every non-host
 ## peer has readied, so the client's `_request_ready` has to have arrived for
 ## this to be reachable at all.
 func _stage_match_start() -> bool:
-	print("net_loopback: stage 6/8 — match start")
+	print("net_loopback: stage 6/9 — match start")
 	_check("the host cannot start yet", Net.can_start_match(), false)
 	if (await _request("ready", {}, STEP_TIMEOUT)).is_empty():
 		return false
@@ -379,16 +395,24 @@ func _stage_match_start() -> bool:
 	return true
 
 
-## 7/8. The one that matters. Both peers build the real arena from the
-## replicated seed, the host decides a death through `MatchState.report_kill` —
-## the same call a landed spear makes — and the client is asked what it saw.
+## 7/9. The arena, and then the one thing no stage here had ever asked a
+## *client* to do: use an ability.
+##
+## Both peers build the real island from the replicated seed, and then the
+## client throws a spear, plants a mushroom and lobs a lure through the public
+## `GubCombat` API — the same three calls a key press reaches. Everything after
+## that is the host's answer coming back: `try_*` only sends a request, and the
+## item, the throw animation and the empty hand are all built by the `_do_*`
+## broadcast the host makes in reply. A client whose broadcast is refused
+## predicts a cooldown and nothing else happens anywhere, which is exactly what
+## D-024 was.
 ##
 ## The sub-check about the client's Gubs is not decoration. `_create_gub` is
 ## dropped on the floor by any peer whose `_players_root` is still null, and the
-## host sends it the instant *its own* island finishes. See the note in
-## `_stage_kill`'s body for how close that actually runs.
-func _stage_kill() -> bool:
-	print("net_loopback: stage 7/8 — a kill over the wire")
+## host sends it the instant *its own* island finishes. See the note below for
+## how close that actually runs.
+func _stage_abilities() -> bool:
+	print("net_loopback: stage 7/9 — the arena, and the client's abilities in it")
 	var started := Time.get_ticks_msec()
 	if not await _await_until("the host's arena", ARENA_TIMEOUT,
 			func() -> bool: return get_tree().current_scene is Arena):
@@ -435,6 +459,44 @@ func _stage_kill() -> bool:
 	_check("the client has a Gub for every player", int(arena.get("gubs", -1)),
 		Net.player_count())
 
+	# Watch the item container rather than sampling it later. A lure takes
+	# itself out of the world about two seconds after it fires, so "is there a
+	# lure under `spawned_items`?" is a question with a shelf life; "did one
+	# appear, and whose was it?" is not.
+	if not _require("the host found the item container", _watch_spawned_items()):
+		return false
+
+	var acted := await _request("abilities", {}, ARENA_TIMEOUT)
+	if acted.is_empty():
+		return false
+	_check("the client threw a spear of its own", int(acted.get("spears", -1)), 1)
+	_check("the client planted a mushroom of its own", int(acted.get("mushrooms", -1)), 1)
+	_check("the client threw a lure of its own", int(acted.get("lures", -1)), 1)
+	_check("the spear left the client's hand", bool(acted.get("hand_empty", false)), true)
+
+	# The same three items on the host, credited to the client. The host builds
+	# its copy inside `_host_*` before it broadcasts, so if these are missing the
+	# request never arrived; if these are here and the client's are not, the
+	# broadcast was refused on the far side.
+	_check("the host built the client's spear", _spawned_count("spear", _client_id), 1)
+	_check("the host built the client's mushroom", _spawned_count("mushroom", _client_id), 1)
+	_check("the host built the client's lure", _spawned_count("lure", _client_id), 1)
+
+	# The lure's pull crosses the wire the other way — the host decides who was
+	# caught, the victim's own client applies it, because movement is
+	# client-authoritative (D-004). The client is thrown inside its own lure's
+	# radius on purpose, so it is its own victim and one throw exercises both
+	# directions.
+	_check("the host's lure caught the client", _lure_caught.has(_client_id), true)
+	_check("the client felt the pull", bool(acted.get("lured", false)), true)
+	print("net_loopback:   peer %d threw, planted and lured — on both machines" % _client_id)
+	return true
+
+
+## 8/9. The host decides a death through `MatchState.report_kill` — the same
+## call a landed spear makes — and the client is asked what it saw.
+func _stage_kill() -> bool:
+	print("net_loopback: stage 8/9 — a kill over the wire")
 	var victim_gub: Gub = MatchState.gubs.get(_client_id)
 	var point := victim_gub.global_position if is_instance_valid(victim_gub) else Vector3.ZERO
 	# A blow with real speed in it: the corpse's flight is scaled by it, so a
@@ -459,14 +521,14 @@ func _stage_kill() -> bool:
 	return true
 
 
-## 8/8. The client goes away and the host clears up after it. `Net.player_left`
+## 9/9. The client goes away and the host clears up after it. `Net.player_left`
 ## and `MatchState._on_player_left` are the newest code in the networking layer
 ## and have never run against a socket.
 func _stage_disconnect() -> void:
 	if _client_id == 0 or not Net.has_player(_client_id):
-		print("net_loopback: stage 8/8 — skipped, no client to disconnect")
+		print("net_loopback: stage 9/9 — skipped, no client to disconnect")
 		return
-	print("net_loopback: stage 8/8 — disconnect")
+	print("net_loopback: stage 9/9 — disconnect")
 
 	# Its tally first, while it can still answer.
 	var tally := await _request("finish", {}, STEP_TIMEOUT)
@@ -615,6 +677,8 @@ func _serve(message: Dictionary) -> void:
 			reply["seed"] = Net.config.map_seed
 			reply["gubs"] = MatchState.gubs.size()
 			reply["spawns"] = arena.spawn_points.size() if arena != null else 0
+		"abilities":
+			reply = await _client_abilities()
 		"kill":
 			var victim := int(payload.get("victim", 0))
 			await _await_until("a death to arrive", STEP_TIMEOUT,
@@ -649,6 +713,138 @@ func _serve(message: Dictionary) -> void:
 			_fail("the host asked for \"%s\", which this harness does not know" % topic)
 
 	_ctl.rpc_id(1, "done:" + topic, reply)
+
+
+## The client's half of stage 7: use all three abilities and report what
+## actually happened on this machine.
+##
+## Everything goes through the public `GubCombat` calls, which is the same entry
+## point `GubCombat._process` reaches from a key press — nothing here pokes at a
+## `_do_*` or at the host directly. That is the whole point of the stage. Stage 8
+## kills the client by calling `MatchState.report_kill` on the *host*, which
+## never touches `GubCombat` at all, so until now no non-host peer had ever been
+## asked to do anything and every ability a client used was refused on arrival.
+func _client_abilities() -> Dictionary:
+	var out := {"ok": true, "spears": -1, "mushrooms": -1, "lures": -1,
+		"hand_empty": false, "lured": false}
+	var gub := MatchState.local_gub()
+	if not _require("the client has a Gub of its own", gub != null):
+		return out
+	var rig := gub.get_node_or_null("CameraRig") as GubCamera
+	var combat := gub.get_node_or_null("Combat") as GubCombat
+	if not _require("the client's Gub carries a rig and a Combat",
+			rig != null and combat != null):
+		return out
+	if not _require("the client found the item container", _watch_spawned_items()):
+		return out
+
+	# Aim at the ground a few metres ahead and let the rig settle on it. The
+	# camera sits behind the Gub and off to one side, so `look_at_point` gets
+	# close on the first call and converges over the next few — the same thing
+	# `tools/combat_range.gd` does, and for the same reason.
+	var aim := gub.global_position + gub.facing() * ABILITY_AIM_DISTANCE
+	for i in 12:
+		rig.look_at_point(aim)
+		await get_tree().process_frame
+
+	combat.try_throw_spear()
+	combat.try_place_mushroom()
+	combat.try_throw_lure()
+
+	# None of these three exist yet. `try_*` sends an intent and predicts a
+	# cooldown; the item itself is built by `_do_*` when the host broadcasts it
+	# back, so waiting here is waiting for the round trip.
+	await _await_until("the client's own spear", STEP_TIMEOUT,
+		func() -> bool: return _spawned_count("spear", gub.peer_id) > 0)
+	await _await_until("the client's own mushroom", STEP_TIMEOUT,
+		func() -> bool: return _spawned_count("mushroom", gub.peer_id) > 0)
+	await _await_until("the client's own lure", STEP_TIMEOUT,
+		func() -> bool: return _spawned_count("lure", gub.peer_id) > 0)
+	out["spears"] = _spawned_count("spear", gub.peer_id)
+	out["mushrooms"] = _spawned_count("mushroom", gub.peer_id)
+	out["lures"] = _spawned_count("lure", gub.peer_id)
+	_check("the client built its own spear", out["spears"], 1)
+	_check("the client built its own mushroom", out["mushrooms"], 1)
+	_check("the client built its own lure", out["lures"], 1)
+
+	# The empty hand is checked after the spear exists rather than on the frame
+	# of the call, because it is not local feedback: `_do_throw_spear` is what
+	# takes the spear out of the hand, and a client whose broadcast never lands
+	# stands there still holding a spear it has already thrown.
+	out["hand_empty"] = gub.held_spear != null and not gub.held_spear.is_carried()
+	_check("the spear left this client's hand", out["hand_empty"], true)
+
+	# The pull travels the other way: the host decides who the lure caught and
+	# tells the victim's own client, because movement is client-authoritative
+	# and the host cannot move the body itself (D-004). The throw is short
+	# enough that the thrower is inside its own radius, so this client is its
+	# own victim.
+	await _await_until("this client's own lure to pull it", STEP_TIMEOUT,
+		func() -> bool: return gub.is_lured())
+	out["lured"] = gub.is_lured()
+	_check("the lure pulled this client", out["lured"], true)
+	return out
+
+
+# --------------------------------------------------------- spawned items ---
+
+## Start recording what `GubCombat._spawn_root` builds. Both peers do this, and
+## both read it back through `_spawned_count`.
+func _watch_spawned_items() -> bool:
+	var root := get_tree().get_first_node_in_group("spawned_items")
+	if root == null:
+		return false
+	if not root.child_entered_tree.is_connected(_on_item_spawned):
+		root.child_entered_tree.connect(_on_item_spawned)
+	return true
+
+
+func _on_item_spawned(node: Node) -> void:
+	# Connected here rather than sampled later: `caught` fires once, about a
+	# second after the lure lands, and it is the only place the whole victim
+	# list exists (see `Lure`).
+	if node is Lure:
+		(node as Lure).caught.connect(func(victim_ids: Array) -> void:
+			for victim_id: int in victim_ids:
+				_lure_caught.append(int(victim_id)))
+	# One frame before reading the owner. `GubCombat` adds the child and *then*
+	# calls `plant` / `launch_from`, so at this instant a mushroom and a lure
+	# still say they belong to peer 0. Nothing is freed anywhere near this fast.
+	await get_tree().process_frame
+	if not is_instance_valid(node):
+		return
+	var kind := _item_kind(node)
+	if kind.is_empty():
+		return
+	_spawned.append([kind, _item_owner(node)])
+
+
+func _item_kind(node: Node) -> String:
+	if node is SpearProjectile:
+		return "spear"
+	if node is ShieldMushroom:
+		return "mushroom"
+	if node is Lure:
+		return "lure"
+	return ""
+
+
+func _item_owner(node: Node) -> int:
+	if node is SpearProjectile:
+		return (node as SpearProjectile).thrower_id
+	if node is ShieldMushroom:
+		return (node as ShieldMushroom).owner_peer_id
+	if node is Lure:
+		return (node as Lure).owner_peer_id
+	return 0
+
+
+func _spawned_count(kind: String, peer_id: int) -> int:
+	var total := 0
+	for entry: Array in _spawned:
+		if String(entry[0]) == kind and int(entry[1]) == peer_id:
+			total += 1
+	return total
 
 
 # --------------------------------------------------------- control channel ---

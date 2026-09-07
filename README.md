@@ -72,7 +72,8 @@ plain one detaches from the terminal and prints nowhere.
 |---|---|
 | move / sprint / crouch | `WASD`, `Shift`, `Ctrl` or `C` |
 | jump, slide | `Space`, crouch while sprinting |
-| throw spear | left mouse |
+| dive | `Space` again in mid-air — once per jump, and you commit to it |
+| throw spear | left mouse — winds up, leaves the hand ~0.5 s later |
 | aim (zooms in) | right mouse |
 | mushroom, lure | `Q`, `E` |
 | scoreboard, pause, chat | `Tab`, `Esc`, `T` |

@@ -13,15 +13,42 @@ extends MeshInstance3D
 ## rebuilt from world positions must not then be transformed again by the
 ## spear's own rotation as it turns to face its travel.
 
-## How many past positions make up the ribbon. At 60 Hz this is a fifth of a
-## second of flight, which is long enough to show the arc and short enough that
-## the trail never outlives the shot.
-const SAMPLES := 12
-## Half-width of the ribbon at the head, tapering to nothing at the tail.
-const HALF_WIDTH := 0.055
+## How many past positions make up the ribbon. At 60 Hz this is 0.4 s of
+## flight — about seventeen metres at 42 m/s.
+##
+## It was twelve, which is half that, and half that was not enough: the single
+## loudest thing the playtesters said was that they could not see the spear at
+## all. A fifth of a second of streak on an object that crosses the screen in
+## well under a second is a flick you notice after it has gone past. Doubling it
+## means that at any moment during a mid-range throw there is a line on screen
+## running from roughly the thrower's hand to the spear, which is what makes the
+## shot readable — both to whoever threw it and to whoever it is coming at.
+##
+## It is still short enough to outlive nothing: the ribbon is bounded by flight
+## time, not by distance, so it shortens itself as the spear slows and is gone
+## within 0.4 s of the impact.
+const SAMPLES := 24
+## Half-width of the ribbon at the head, tapering to nothing at the tail. Up
+## from 0.055 for the same reason as `SAMPLES` — at twenty metres the old ribbon
+## was under a pixel wide and the additive blend had nothing to add to.
+const HALF_WIDTH := 0.09
 ## Below this the spear is stuck or barely moving and the trail is just a smear
 ## sitting on the ground.
 const MIN_SPEED := 4.0
+
+## Warm and near-white at the head rather than the pale blue it was. The arena
+## is a night forest lit by torches: a cold blue streak sat in the same range as
+## the sky and the fog and disappeared into both, and warm light is also what
+## every other thing in this game that matters is coloured — the crosshair, the
+## cooldown ring, the torches. `HEAD_ALPHA` is what the additive blend gets at
+## the spear itself; the rest of the ribbon is scaled off it.
+const COLOUR := Color(1.0, 0.87, 0.58)
+const HEAD_ALPHA := 1.0
+## How sharply the ribbon gives up its brightness behind the head. Squared —
+## which is what this was — puts almost everything in the front quarter and
+## wastes the extra length; this holds the streak together for about half its
+## span and then drops it.
+const FADE_POWER := 1.4
 
 var _points: PackedVector3Array = PackedVector3Array()
 var _mesh: ImmediateMesh
@@ -47,7 +74,7 @@ func _make_material() -> StandardMaterial3D:
 	material.vertex_color_use_as_albedo = true
 	material.disable_receive_shadows = true
 	material.no_depth_test = false
-	material.albedo_color = Color(0.62, 0.80, 1.0, 1.0)
+	material.albedo_color = Color(COLOUR.r, COLOUR.g, COLOUR.b, 1.0)
 	return material
 
 
@@ -107,8 +134,10 @@ func _rebuild() -> void:
 		# widest at the spear and vanishes behind it.
 		var t := float(i) / float(_points.size() - 1)
 		var width := HALF_WIDTH * t
-		_mesh.surface_set_color(Color(0.62, 0.80, 1.0, t * t * 0.85))
+		var tint := Color(COLOUR.r, COLOUR.g, COLOUR.b,
+			pow(t, FADE_POWER) * HEAD_ALPHA)
+		_mesh.surface_set_color(tint)
 		_mesh.surface_add_vertex(point + side * width)
-		_mesh.surface_set_color(Color(0.62, 0.80, 1.0, t * t * 0.85))
+		_mesh.surface_set_color(tint)
 		_mesh.surface_add_vertex(point - side * width)
 	_mesh.surface_end()

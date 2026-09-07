@@ -354,6 +354,28 @@ func _create_gub(peer_id: int, spawn: Transform3D) -> void:
 	# the last Gub spawned steals the viewport and the player spends the match
 	# looking out of somebody else's head.
 	gub.set_multiplayer_authority(peer_id)
+	# ...with one node held back: `Combat` belongs to the **host** on every
+	# machine, including the machine that owns the Gub.
+	#
+	# The owner decides *when* it wants to throw; the host decides *whether* the
+	# throw happened, and the `_do_*` calls that make an ability real are
+	# broadcast by peer 1 (D-004, D-024). Godot checks an `@rpc("authority")`
+	# against whoever owns the node it *lands on*, so while `Combat` belonged to
+	# the client every one of those broadcasts was refused on arrival — on every
+	# peer, including the thrower's own. A non-host's spear never left their
+	# hand, their mushroom and lure appeared for nobody, and the only thing that
+	# still worked was the local cooldown prediction, so it looked like a
+	# rendering problem rather than a networking one. The host's own abilities
+	# were fine purely because for the host's Gub the owner and the host are the
+	# same peer.
+	#
+	# Non-recursive on purpose. `Combat` has no children today, but the flag is
+	# the statement: exactly one node changes hands, and the
+	# `MultiplayerSynchronizer` beside it must keep belonging to the peer whose
+	# position it publishes.
+	var combat := gub.get_node_or_null("Combat")
+	if combat != null:
+		combat.set_multiplayer_authority(1, false)
 
 	_players_root.add_child(gub)
 	# `revive_at` rather than assigning the transform: it also seeds the

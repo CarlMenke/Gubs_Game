@@ -70,12 +70,26 @@ not need. `set_multiplayer_authority(peer_id)` is called on spawn and a
 `MultiplayerSynchronizer` pushes the result out; remote Gubs run no input and no
 gravity, they only smooth toward what the network last said.
 
+One child is deliberately held back from that: the Gub's **`Combat` node belongs
+to the host** on every machine (**D-024**). The owner decides *when* it wants to
+throw and the host decides *whether* it happened, and it is the host that
+broadcasts the answer — so the node that answer arrives at has to be the host's,
+or every peer refuses it. That is also where a lure's pull is delivered, because
+`Players/Gub_<peer>/Combat` is a path both ends agree on and a spawned lure's
+is not.
+
 Everything else is a request. `GubCombat` decides *when* it wants to throw and
 plays its own feedback immediately so the game feels instant, but it sends an
 intent RPC and the host decides whether the throw actually happened. Cooldowns
 are therefore tracked twice on purpose — the local copy drives the HUD sweep
 without a round trip, the host's copy is the one that counts, and a client that
 lies about its cooldown gets its request dropped.
+
+The spear is the one thing whose *feedback* is instant and whose *effect* is
+not. A click starts the throw animation everywhere — locally, and on the other
+peers through a cosmetic relay the host sends — and the spear leaves the hand
+0.57 s later, at the point in the clip where the arm is coming forward. The aim
+is read then and not at the click, so a moving target has to be led (**D-025**).
 
 The pattern throughout is **`rpc()` then call locally**. Both halves matter, and
 only one of them has ever been exercised offline — see the testbed note below.

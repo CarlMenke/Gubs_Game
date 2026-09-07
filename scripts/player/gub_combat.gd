@@ -9,15 +9,42 @@ extends Node
 ## gets its request dropped — the host keeps its own timers and is the only one
 ## that broadcasts.
 ##
+## Which is why **this node belongs to the host and not to the Gub around it**.
+## `MatchState._create_gub` hands the Gub to its owner and then hands this one
+## child back to peer 1, because the `_do_*` broadcasts below are sent by the
+## host and Godot checks an `@rpc("authority")` against whoever owns the node it
+## arrives at. The `_request_*` calls go the other way and are `any_peer` with a
+## sender check, so the owner can still ask. See D-024.
+##
 ## Cooldowns are therefore tracked twice on purpose. The local copy exists so the
 ## HUD can show a sweeping timer without waiting for a round trip; the host's
 ## copy is the one that counts.
+##
+## The spear is the one ability that does *not* happen on the click. A click
+## starts the windup animation; the spear leaves the hand THROW_RELEASE_TIME
+## later, and the aim is read at that moment rather than at the click, so a
+## target that moves while you wind up has to be led. See D-025.
 
 signal cooldowns_changed()
 
 const SPEAR := preload("res://scripts/items/spear_projectile.gd")
 const MUSHROOM := preload("res://scenes/items/shield_mushroom.tscn")
 const LURE := preload("res://scenes/items/lure.tscn")
+
+## How long after the click the spear actually leaves the hand.
+##
+## Measured off the clip rather than guessed. `SpearThrow` is 1.53 s, and
+## tracking the `hand.R` bone against the spine through it says: the arm draws
+## back until 0.39 s, whips up over the shoulder to its highest at 0.54 s,
+## crosses in front of the body at 0.55 s and reaches furthest forward at
+## 0.60 s. A thrown object separates at peak forward hand speed, which is the
+## 0.54-0.60 s stretch, so the spear goes at 0.57 s — by 0.60 the hand is
+## already decelerating and the throw would read as a push.
+##
+## The throw OneShot's 0.10 s fade-in needs no allowance on top: the clip barely
+## moves for its first 0.21 s, so the blend is long finished before anything the
+## eye is following depends on it.
+const THROW_RELEASE_TIME := 0.57
 
 ## Where the throw leaves the hand, relative to the Gub. The spear is aimed at
 ## whatever the crosshair is over, not simply pushed along the camera's forward
@@ -60,6 +87,16 @@ var _server_lure_ready_at: float = 0.0
 
 var _active_mushrooms: Array[Node] = []
 
+## The ring on the ground while aiming. Local, cosmetic, and made on first use
+## rather than in `_ready`, because seven of every eight Gubs in a match are
+## somebody else's and must never build one.
+var _aim_marker: AimMarker = null
+
+## When the spear currently being wound up leaves the hand, or 0 for "no throw
+## in progress". Only ever set on the throwing client: the host is told about
+## the throw when it happens, not while it is being aimed.
+var _windup_release_at: float = 0.0
+
 
 func _ready() -> void:
 	_gub = get_parent() as Gub
@@ -76,10 +113,19 @@ func _now() -> float:
 # -------------------------------------------------------------------- input ---
 
 func _process(_delta: float) -> void:
-	if _gub == null or not _gub.is_local() or not _gub.alive:
+	if _gub == null:
+		return
+	# Before the guards below, not after: a Gub that dies or is respawned in the
+	# middle of a windup has a throw to *cancel*, and the guards are exactly the
+	# conditions under which it has to be cancelled.
+	_tick_windup()
+	if not _gub.is_local() or not _gub.alive:
+		_stow_aim_marker()
 		return
 	if SceneFlow.cursor_is_free():
+		_stow_aim_marker()
 		return
+	_tick_aim_marker()
 	if Input.is_action_just_pressed("throw_spear"):
 		try_throw_spear()
 	if Input.is_action_just_pressed("place_mushroom"):
@@ -102,6 +148,20 @@ func lure_cooldown() -> float:
 
 func has_spear() -> bool:
 	return spear_cooldown() <= 0.0
+
+
+## The whole spear cycle: the windup you have already committed to, plus the
+## recharge that follows it. The HUD divides by this rather than by the recharge
+## alone, so the ring sweeps from the click instead of sitting full through the
+## windup and then jumping down when the spear finally goes.
+func spear_cycle() -> float:
+	return THROW_RELEASE_TIME + _config.spear_recharge
+
+
+## True between the click and the release. The held spear is still in the hand
+## through this window, which is the point of it.
+func is_winding_up() -> bool:
+	return _windup_release_at > 0.0
 
 
 # ------------------------------------------------------------------- aiming ---
@@ -137,25 +197,133 @@ func _throw_origin() -> Vector3:
 		+ basis * THROW_OFFSET
 
 
+# ------------------------------------------------------- the drop indicator ---
+
+## Keep the landing ring in step with where the Gub is pointing.
+##
+## Only while aiming, and only with a spear to throw — including the half second
+## you are winding one up, because through the windup the aim is still live and
+## is exactly what the release is about to read. A ring under an empty hand
+## would be a promise the cooldown is not keeping.
+##
+## Deliberately gated on the aim button rather than shown all the time. Spears
+## drop, and judging that drop is where a lot of the skill in the fight lives
+## (D-014, D-025); a marker on screen at all times turns the throw from a thing
+## you read into a thing you line up. Holding the button is the price of the
+## answer, and it costs you the wider field of view while you ask.
+func _tick_aim_marker() -> void:
+	var rig := _gub.get_node_or_null("CameraRig") as GubCamera
+	if rig == null or not rig.is_aiming() or not (has_spear() or is_winding_up()):
+		_stow_aim_marker()
+		return
+	if _aim_marker == null:
+		_aim_marker = AimMarker.new()
+		_aim_marker.name = "AimMarker"
+		# Hung off the Gub so it is freed with it and hidden with it, but the
+		# marker is `top_level`, so the body walking and turning underneath does
+		# not drag the ring around with it.
+		_gub.add_child(_aim_marker)
+
+	# The same two calls the release makes, in the same order, so the ring is
+	# answering the question the throw is actually going to be asked.
+	var origin := _throw_origin()
+	var direction := (_aim_point() - origin).normalized()
+	if direction.length_squared() < 0.001:
+		_stow_aim_marker()
+		return
+	_aim_marker.aim(origin, direction, _gub.get_rid())
+
+
+func _stow_aim_marker() -> void:
+	if _aim_marker != null:
+		_aim_marker.stow()
+
+
 # ------------------------------------------------------------------- spear ---
 
+## A click starts the throw; it does not make it. The arm goes back now and the
+## spear leaves the hand THROW_RELEASE_TIME later, at which point the aim is
+## sampled and the host is asked. Nothing about *where* the spear goes is
+## decided here, which is the whole change: a target that walks during your
+## windup has to be led.
 func try_throw_spear() -> void:
-	if spear_cooldown() > 0.0:
+	if spear_cooldown() > 0.0 or is_winding_up():
 		return
+
+	_windup_release_at = _now() + THROW_RELEASE_TIME
+	# The input has been spent whether or not the spear has left yet, so the ring
+	# starts sweeping on the click. A crosshair that sits ready through half a
+	# second of windup only invites the second click that will be refused.
+	_spear_ready_at = _now() + spear_cycle()
+	cooldowns_changed.emit()
+
+	# Everyone else has to see the arm come back too, or the windup is a tell
+	# only the thrower gets. The thrower plays it here and the host relays it to
+	# the rest, because a client cannot address the other peers itself (D-024).
+	_play_windup()
+	if Net.is_host:
+		_host_throw_windup()
+	else:
+		_request_throw_windup.rpc_id(1)
+
+
+## The release. Runs on the throwing client only, THROW_RELEASE_TIME after the
+## click, and is the first moment anything about the aim is read.
+func _tick_windup() -> void:
+	if _windup_release_at <= 0.0:
+		return
+	# Dead, respawned, or no longer ours: the throw is off. The windup animation
+	# is already playing and is left alone — it is cosmetic and fades out on its
+	# own — but no spear comes out of it.
+	if not _gub.alive or not _gub.is_local():
+		_windup_release_at = 0.0
+		return
+	if _now() < _windup_release_at:
+		return
+	_windup_release_at = 0.0
+
 	var origin := _throw_origin()
 	var direction := (_aim_point() - origin).normalized()
 	if direction.length_squared() < 0.001:
 		return
-
-	# Predict locally so the animation and the empty hand happen on the same
-	# frame as the click, then ask the host to make it real.
-	_spear_ready_at = _now() + _config.spear_recharge
-	cooldowns_changed.emit()
-
 	if Net.is_host:
 		_host_throw_spear(origin, direction)
 	else:
 		_request_throw_spear.rpc_id(1, origin, direction)
+
+
+func _play_windup() -> void:
+	var animator := _gub.get_node_or_null("AnimationTree") as GubAnimator
+	if animator != null:
+		animator.play_throw()
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _request_throw_windup() -> void:
+	if not Net.is_host or multiplayer.get_remote_sender_id() != _gub.peer_id:
+		return
+	_host_throw_windup()
+
+
+## Deliberately not gated on the host's cooldown. This is a cosmetic tell, and
+## refusing it would only hide the wind-up from everyone while the throw that
+## follows is checked properly anyway; a Gub that winds up and produces no spear
+## is a truthful picture of a client that asked for a throw it could not have.
+func _host_throw_windup() -> void:
+	if not _gub.alive:
+		return
+	_do_throw_windup.rpc()
+	_do_throw_windup()
+
+
+@rpc("authority", "call_remote", "reliable")
+func _do_throw_windup() -> void:
+	# The thrower already played this on its own click. Playing it again when the
+	# host's relay lands would restart the arm half a round trip in and leave the
+	# animation running behind the spear it is supposed to be launching.
+	if _gub == null or _gub.is_local():
+		return
+	_play_windup()
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -177,14 +345,15 @@ func _host_throw_spear(origin: Vector3, direction: Vector3) -> void:
 	_do_throw_spear(origin, direction.normalized())
 
 
+## The release, on every machine. No `play_throw()` here any more: the windup
+## started the animation THROW_RELEASE_TIME ago on every peer and firing the
+## OneShot again would snap the arm back to the start of the throw at the exact
+## moment the spear leaves it.
 @rpc("authority", "call_remote", "reliable")
 func _do_throw_spear(origin: Vector3, direction: Vector3) -> void:
 	_spear_ready_at = _now() + _config.spear_recharge
 	cooldowns_changed.emit()
 
-	var animator := _gub.get_node_or_null("AnimationTree") as GubAnimator
-	if animator != null:
-		animator.play_throw()
 	if _gub.held_spear != null:
 		_gub.held_spear.set_carried(false)
 		_regrow_spear()
@@ -383,6 +552,23 @@ func _do_throw_lure(origin: Vector3, velocity: Vector3) -> void:
 	lure.call("launch_from", origin, velocity, _gub.peer_id, _config)
 
 
+## The host telling this Gub's own client that a lure has caught it.
+##
+## The pull has to be applied by the victim's client because movement is
+## client-authoritative and the host cannot simply move a body it does not own
+## (D-004). `Lure` decides *who*; this is *where the answer is delivered*, and it
+## is delivered here rather than on the lure that fired it because an RPC is
+## addressed by node **path**. A lure has no path two machines agree on: every
+## peer builds its own copy into `spawned_items`, and the moment a second one is
+## in the air Godot disambiguates the duplicate name with a counter local to that
+## process. `Players/Gub_<peer>/Combat` is a name both ends already have, and it
+## is owned by the host, which is what makes "authority" the right mode for it.
+@rpc("authority", "call_remote", "reliable")
+func apply_lure_pull(centre: Vector3, strength: float, duration: float) -> void:
+	if _gub != null:
+		_gub.apply_lure(centre, strength, duration)
+
+
 # ------------------------------------------------------------------- shared ---
 
 ## Everything a Gub spawns goes into one container so the arena can clear the
@@ -393,7 +579,10 @@ func _spawn_root() -> Node:
 
 
 ## Called when a round restarts: wipe cooldowns so nobody starts a round unarmed.
+## A throw that was still winding up when the round ended is dropped with them —
+## respawning with a spear already half thrown is nobody's idea of a fresh start.
 func reset() -> void:
+	_windup_release_at = 0.0
 	_spear_ready_at = 0.0
 	_mushroom_ready_at = 0.0
 	_lure_ready_at = 0.0

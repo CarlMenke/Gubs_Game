@@ -18,7 +18,7 @@ extends Node3D
 ##
 ## Snapshot it (the mode is the trailing argument, as in the sandbox):
 ##   Godot --path . --resolution 1280x720 --script tools/snapshot.gd -- \
-##       res://tools/combat_range.tscn out.png 90 hit
+##       res://tools/combat_range.tscn out.png 110 hit
 
 ## Peer ids for the dummies. Well outside anything ENet hands out, so a stray
 ## real peer can never collide with one.
@@ -30,6 +30,15 @@ const DUMMY_BASE := 900
 ##   hit      — the same throw, held until the dummy is a corpse
 ##   arc      — a long throw at the far wall, to see how much a spear drops
 ##   miss     — a throw into the dirt, to check the spear sticks and stays put
+##   aim      — holds the aim button at the far wall and never throws, which is
+##              the state the spear's landing ring lives in and the one state no
+##              other mode here spends a frame in. It also prints where the ring
+##              landed and how far short of the aim point that is, so a run says
+##              something even if nobody opens the PNG. Watched from the
+##              touchline like everything else — the ring is flat on the ground
+##              and from the thrower's own eye it is seen nearly edge-on, so
+##              `pov` is worth passing to check exactly that and is the wrong
+##              default for a still frame.
 ##   mushroom — one planted, to check it lands on the ground the right size
 ##   lure     — a lure lobbed at the middle dummy, held through the pull.
 ##              Note what this mode can and cannot show: the catch *decision* is
@@ -50,8 +59,8 @@ const DUMMY_BASE := 900
 ##              before the arena is freed, so every Gub in the tree spends those
 ##              frames still being processed with no peer to ask.
 ##   free     — no script; play it yourself
-const MODES := ["flight", "hit", "arc", "miss", "mushroom", "lure", "lure_self",
-	"walk", "leave", "free"]
+const MODES := ["flight", "hit", "arc", "miss", "aim", "mushroom", "lure",
+	"lure_self", "walk", "leave", "free"]
 
 ## How far the `walk` mode requires the Gub to travel. A Gub that is not walking
 ## still drifts a little as it settles onto the ground on the first few frames,
@@ -71,6 +80,11 @@ const VIEWS := {
 	"mushroom": {"eye": Vector3(6.0, 2.6, 9.5), "look": Vector3(0.0, 1.1, 7.2), "fov": 50.0},
 	"lure": {"eye": Vector3(12.0, 8.0, -3.0), "look": Vector3(-3.0, 1.0, -12.0), "fov": 60.0},
 	"lure_self": {"eye": Vector3(9.0, 3.2, 12.0), "look": Vector3(0.0, 1.0, 7.0), "fov": 55.0},
+	# High and off to one side, because a ring lying on the ground is seen
+	# edge-on from the thrower's own eye and a still frame of that is a line one
+	# pixel tall. Pass `pov` after the mode to look down the throw anyway — that
+	# is the view the player actually gets, and it is worth checking.
+	"aim": {"eye": Vector3(11.0, 8.0, 0.0), "look": Vector3(1.5, 0.2, -13.0), "fov": 55.0},
 }
 
 const PLAYER_SPOT := Vector3(0.0, 0.1, 9.0)
@@ -82,6 +96,13 @@ const DUMMY_SPOTS: Array[Vector3] = [
 ## Where the long throw is aimed in `arc` mode: the far wall, well past any
 ## dummy, so the whole parabola is in frame.
 const ARC_TARGET := Vector3(0.0, 1.2, -34.0)
+## Where `aim` points. The same far wall, shifted off the centre line on
+## purpose: aimed straight down it the spear meets Dummy 1 at fourteen metres
+## and the landing ring is drawn on a Gub's chest, which proves the marker works
+## on players and shows nothing at all about drop. Offset, the flight has clear
+## air all the way down and the ring lands on open dirt, where the gap between
+## it and the point being aimed at is the whole picture.
+const AIM_TARGET := Vector3(2.5, 1.2, -34.0)
 
 var _mode: String = "free"
 var _trace: bool = false
@@ -250,8 +271,24 @@ func _physics_process(_delta: float) -> void:
 	if not _acted:
 		rig.look_at_point(_aim_at)
 
+	# `aim` never throws. It holds the button down and leaves the rig pointed at
+	# the wall, which is the state the drop indicator exists in — and the state
+	# no other mode here spends a single frame in, because every other mode's
+	# job is to get the projectile out of the hand.
+	if _mode == "aim":
+		Input.action_press("aim")
+		_report_aim(combat)
+		return
+
 	# Twenty frames is enough for the rig to settle onto the target and for the
 	# spawn-frame transforms to have been published.
+	#
+	# Note what "acted" means for a spear since D-025: the click, not the throw.
+	# `GubCombat.try_throw_spear` only starts the windup, and the spear leaves
+	# the hand THROW_RELEASE_TIME (0.57 s, 34 ticks) later — so a mode that waits
+	# for a spear has to allow frame 20 + 34 before the projectile even exists,
+	# and its whole flight after that. The warmup counts in `tools/smoke_test.sh`
+	# are sized for that.
 	if _frames < 20 or _acted:
 		return
 	_acted = true
@@ -264,10 +301,31 @@ func _physics_process(_delta: float) -> void:
 			combat.try_throw_spear()
 
 
+## Say where the ring ended up. A still frame shows a yellow circle on some
+## dirt; only a number says whether that dirt is the dirt the ballistics picked,
+## and the gap between it and the aim point *is* the drop the testers asked
+## about.
+func _report_aim(combat: GubCombat) -> void:
+	# Late enough that `look_at_point` has converged and the rig has finished
+	# easing into the aimed field of view.
+	if _frames != 60:
+		return
+	var marker := combat.get_parent().get_node_or_null("AimMarker") as Node3D
+	if marker == null or not marker.visible:
+		print("combat_range: aiming at %v — no landing ring" % _aim_at)
+		return
+	var landing := marker.global_position
+	print("combat_range: aiming at %v, spear lands at %v (%.1f m short, %.1f m low)"
+		% [_aim_at, landing, _aim_at.distance_to(Vector3(landing.x, _aim_at.y, landing.z)),
+			_aim_at.y - landing.y])
+
+
 func _target_point() -> Vector3:
 	match _mode:
 		"arc":
 			return ARC_TARGET
+		"aim":
+			return AIM_TARGET
 		"miss":
 			return Vector3(0.0, 0.05, -14.0)
 		"lure":

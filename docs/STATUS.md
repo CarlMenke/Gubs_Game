@@ -4,7 +4,7 @@ Resume point for GUB. Read this first, then `docs/ARCHITECTURE.md` (how it fits
 together), `docs/PLAN.md` (the full task list, with checkboxes) and
 `docs/DECISIONS.md` (why things are the way they are).
 
-Last updated: 2026-09-05.
+Last updated: 2026-09-07.
 
 ---
 
@@ -27,7 +27,7 @@ bash tools/net_test.sh          # two processes, one socket. Not in the gate
 ```
 
 `smoke_test.sh` is the gate and it passes, 10 of 10. `net_test.sh` passes all
-eight of its stages (67 + 22 assertions) and still reports FAIL, deliberately:
+nine of its stages (55 + 30 assertions) and still reports FAIL, deliberately:
 one transient engine warning survives at match start, and it holds itself to
 "the engine stayed quiet" rather than "the assertions passed". D-022 explains
 what it is and what the real fix costs.
@@ -146,6 +146,15 @@ the codebase's `rpc()`-then-call-locally pattern has ever run.
 
 **Serialization has never been exercised. No packet has ever been sent.**
 
+That is no longer true, and the first time people played it the gap showed:
+**a non-host's abilities happened for nobody**, because the recursive
+`set_multiplayer_authority` on a spawned Gub left the host's `_do_*` broadcasts
+landing on a node the host did not own, and every peer refused them. The fix and
+the reason nothing caught it are **D-024**. `net_loopback` has a stage for it
+now — the client throws a spear, plants a mushroom and lobs a lure through the
+public `GubCombat` calls, and both processes assert the results — and
+`net_test.sh` fails a peer outright on `is not allowed on node`.
+
 `tools/net_loopback.tscn` and `tools/net_test.sh` exist to change that by running
 two real processes against 127.0.0.1. Read that tool's header for what it covers
 and what it found. Two things it still cannot tell you, and only two machines
@@ -179,7 +188,7 @@ Three tiers, because three different kinds of claim need three different proofs
 | `tools/invite_codes.tscn` | 2619 assertions over 1296 endpoints |
 | `tools/ragdoll_stability.tscn` | a corpse is still a corpse 150 ticks later |
 | `tools/combat_range.tscn` | the real match path: a spear, a mushroom, a lure |
-| `tools/net_loopback.tscn` | two processes, one socket. **Not in the gate** — it binds a port |
+| `tools/net_loopback.tscn` | two processes, one socket, including a *client* using all three abilities. **Not in the gate** — it binds a port |
 | `tools/preview_*.tscn` | it *looks* right. Needs a person, always will |
 
 **`playthrough` is the one that catches integration.** Every other harness looks

@@ -1,6 +1,14 @@
 extends Node3D
 ## Contact sheet: one Gub per sampled moment of a clip, so a whole animation can
 ## be judged from a single snapshot. Development tool, not shipped.
+##
+##   Godot --path . --resolution 1280x720 --script tools/snapshot.gd -- \
+##       res://tools/preview_anim.tscn out.png 30 SpearThrow [from] [to]
+##
+## `from`/`to` narrow the sheet to a window of the clip in seconds. A 1.53 s
+## throw spread over six evenly-spaced Gubs puts one sample anywhere near the
+## release, which is not enough to pick a frame off; asking for 0.45-0.66 puts
+## all six there. Without them the whole clip is sampled, as before.
 
 @export var clip: String = "Idle"
 @export var samples: int = 6
@@ -16,6 +24,13 @@ func _ready() -> void:
 	var length: float = probe_ap.get_animation(clip).length
 	probe.free()
 
+	var from: float = float(args[4]) if args.size() >= 5 else 0.0
+	# The last sample lands *on* `to` when a window is asked for, and one step
+	# short of the end when it is not: a looping clip's last frame is its first.
+	var to: float = float(args[5]) if args.size() >= 6 else length
+	var span := maxf(to - from, 0.0)
+	var step := span / float(samples if args.size() < 6 else maxi(samples - 1, 1))
+
 	var x := -spacing * (samples - 1) * 0.5
 	for i in samples:
 		var n := (load("res://art/generated/gub.glb") as PackedScene).instantiate() as Node3D
@@ -25,8 +40,15 @@ func _ready() -> void:
 		x += spacing
 		var ap := n.find_child("AnimationPlayer", true, false) as AnimationPlayer
 		ap.play(clip)
-		ap.advance(length * float(i) / float(samples))
+		ap.advance(from + step * float(i))
 		ap.pause()
+
+		var stamp := Label3D.new()
+		stamp.text = "%.2f" % (from + step * float(i))
+		stamp.font_size = 64
+		stamp.pixel_size = 0.0025
+		stamp.position = Vector3(0.0, -0.7, 0.0) / 0.35
+		n.add_child(stamp)
 
 	var label := Label3D.new()
 	label.text = "%s   (%.2fs)" % [clip, length]

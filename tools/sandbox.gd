@@ -8,6 +8,9 @@ extends Node3D
 ## Or let it drive itself for a snapshot, which is how the camera framing and
 ## the animation blends get checked without a human at the keyboard:
 ##   Godot --path . --script tools/snapshot.gd -- res://tools/sandbox.tscn out.png 90 run
+##
+## The modes are the keys of DRIVES below. `dive` is the double-jump: it presses
+## jump twice, eight frames apart, and around frame 80 the Gub is mid-dive.
 
 const GUB := preload("res://scenes/player/gub.tscn")
 
@@ -19,6 +22,7 @@ const DRIVES := {
 	"run": {"move_forward": true, "sprint": true},
 	"crouch": {"move_forward": true, "crouch": true},
 	"jump": {"move_forward": true, "sprint": true, "jump": true},
+	"dive": {"move_forward": true, "sprint": true, "dive": true},
 	"throw": {"move_forward": true, "sprint": true, "throw_spear": true},
 	"ragdoll": {"move_forward": true, "sprint": true, "ragdoll": true},
 }
@@ -65,6 +69,13 @@ func _physics_process(_delta: float) -> void:
 		_gub.wants_sprint = _drive.get("sprint", false)
 		_gub.wants_crouch = _drive.get("crouch", false)
 		if _drive.get("jump", false) and _frames % 48 == 0:
+			_gub.request_jump()
+		# Jump, then jump again eight frames later while still on the way up.
+		# The second press is the dive (`Gub._can_dive`), so a snapshot from
+		# about frame 80 catches the Gub mid-leap with the full clip running.
+		# Frame 30 and not frame 1: the Gub is dropped in from 1.2 m and has to
+		# be standing on something before a press counts as a ground jump.
+		if _drive.get("dive", false) and (_frames == 30 or _frames == 38):
 			_gub.request_jump()
 		if _drive.get("throw_spear", false) and _frames == 20:
 			(_gub.get_node("AnimationTree") as GubAnimator).play_throw()

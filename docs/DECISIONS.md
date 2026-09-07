@@ -488,8 +488,9 @@ the codebase's rpc-then-call-locally pattern had ever run, and **nothing had eve
 been serialised**.
 
 `tools/net_loopback.tscn` and `tools/net_test.sh` close it on one machine: two
-real Godot processes, a real ENet socket on 127.0.0.1, and eight stages —
-connect, roster, name collision, config, chat both ways, match start, a kill, and
+real Godot processes, a real ENet socket on 127.0.0.1, and nine stages —
+connect, roster, name collision, config, chat both ways, match start, the arena
+with the client's three abilities used in it (added later, by D-024), a kill, and
 a disconnect. Both peers load the real arena and build the same island from the
 replicated seed, so the kill is asserted end to end: the host calls
 `report_kill`, the client's `player_killed` fires, and both sides' `stats` agree.
@@ -645,3 +646,312 @@ in Godot at the worst frame of each clip. The flying triangles are gone; the hip
 reads as one surface; the crouch crouches. The remaining 257 torn edges are at
 the outside of hard bends, which is where linear-blend skinning always loses and
 where the fix is a corrective shape, not a better weight.
+
+## D-024 — The `Combat` node belongs to the host, not to the Gub around it
+The first real playtest found that **a non-host player's abilities happened for
+nobody** — not for the other players, and not even for themselves. The thrower
+saw their cooldown sweep, because that is predicted locally, and nothing else:
+the spear stayed in their hand, no mushroom grew, no lure flew. The host's own
+abilities worked perfectly for everyone, which is what made it look like a
+rendering bug rather than a networking one.
+
+Every non-host console said what was actually happening, three lines per press:
+
+```
+ERROR: RPC '_do_throw_spear' is not allowed on node
+       /root/Arena/Players/Gub_565667163/Combat from: 1.
+       Mode is "authority", authority is 565667163.
+```
+
+`MatchState._create_gub` calls `set_multiplayer_authority(peer_id)` on the Gub,
+and that is recursive, so the `Combat` child was owned by the client too. But
+`GubCombat`'s traffic runs in *both* directions: `_request_*` goes client → host
+and is `any_peer` with a sender check, while `_do_*` goes host → everyone and is
+`authority`. Godot checks an `authority` RPC against whoever owns the node it
+**lands on**, so a broadcast from peer 1 arriving at a node owned by peer
+565667163 is refused — on every machine, including the thrower's own.
+
+So `_create_gub` now hands that one child back:
+`combat.set_multiplayer_authority(1, false)`. It reads oddly next to D-004 until
+you say the split out loud: **the owner decides *when*, the host decides
+*whether*.** The node the deciding lands on is the host's. The alternative —
+`@rpc("any_peer")` on the three `_do_*` methods plus a
+`get_remote_sender_id() == 1` guard in each — works, but it makes three methods
+carry a check that the authority system exists to make for them, and it would
+leave `Combat` owned by a peer that never broadcasts anything from it.
+
+Two things this did not touch, on purpose. The `MultiplayerSynchronizer` beside
+`Combat` must keep belonging to the peer whose position it publishes, which is
+why the call is non-recursive. And `Gub.is_local()` still asks the *Gub*, so
+input, movement and the camera are unaffected.
+
+**The lure's pull was the same bug wearing a different hat.** `Lure._catch` runs
+on the host and told each victim's client to apply the pull with
+`_pull_target.rpc_id(peer, ...)` *on the lure node*. An RPC is addressed by node
+path, and a lure has no path two machines agree on: every peer builds its own
+copy into `spawned_items`, and Godot disambiguates a duplicate name with a
+counter local to that process. Before this fix the client had no lure at all and
+the log said so —
+
+```
+ERROR: Node not found: "Arena/SpawnedItems/Lure" (relative to "/root").
+ERROR: Invalid packet received. Requested node was not found.
+```
+
+— and after it, two lures in the air would have been enough to deliver a pull to
+the wrong crystal. The message now lands on `GubCombat.apply_lure_pull`, because
+`Players/Gub_<peer>/Combat` is a name both ends already have and is now owned by
+the host, so it can stay an `authority` RPC with no guard. The host/victim split
+from `Lure`'s header is unchanged, and `caught` still carries the whole victim
+list, which is what `tools/combat_range.gd`'s `lure` mode listens to.
+`ShieldMushroom` was checked for the same shape and has no RPCs at all.
+
+**Why nothing caught this.** `net_loopback`'s kill stage kills the client by
+calling `MatchState.report_kill` on the *host*, which never goes near
+`GubCombat`. Eight green stages and a release tag, and no stage had ever asked a
+non-host peer to *do* something. Stage 7 now does: the client throws a spear,
+plants a mushroom and lobs a lure through the public `try_*` calls, and both
+peers assert the three items exist and that the spear left the client's hand —
+which is the host's broadcast arriving, not local prediction. The throw is short
+enough that the thrower is inside its own lure's radius, so the same stage
+exercises the pull travelling back the other way. `net_test.sh` also fails a peer
+outright on `is not allowed on node` now, because Godot prints that on the
+*receiver* and carries on, so the sender is told nothing and the damage surfaces
+somewhere else entirely.
+
+That is the same lesson as D-018 and D-019 with a new seam: **a harness proves
+what it exercises, and this one was exercising only the host.**
+
+## D-025 — The spear leaves the hand at the animation's release, not at the click
+The first playtest's complaint was "it throws and then the animation comes in
+later". It was right, and it was the wrong way round: `try_throw_spear` spawned
+the projectile on the frame of the click and fired the `SpearThrow` OneShot
+underneath it, so the spear was already twenty metres away while the Gub was
+still drawing its arm back. Nothing about the throw could be *timed*, either —
+the aim was sampled on the click, so a target that ran during the animation was
+hit anyway.
+
+So the click now starts a windup and the spear leaves at
+`GubCombat.THROW_RELEASE_TIME`, **0.57 s** later, with the aim read at that
+moment and not before. In the designer's words, you have to time it out: a Gub
+that walks during your windup has to be led.
+
+**Where 0.57 comes from.** Not from taste. `SpearThrow` is 1.53 s, and the
+`hand.R` bone tracked against the spine through an `AnimationPlayer` says the
+arm draws back until 0.39 s, whips up over the shoulder to its highest at
+0.54 s, crosses in front of the body at 0.55 s, and reaches furthest forward at
+0.60 s. A thrown object separates at peak forward hand speed, which is the
+0.54-0.60 s stretch; by 0.60 the hand is already decelerating and a release
+there would read as a push rather than a throw. `tools/preview_anim.tscn` takes
+an optional `from`/`to` window now, so a contact sheet can be made of that sixth
+of a second instead of of the whole clip — six evenly spaced Gubs across 1.53 s
+put one sample anywhere near the release, which is not enough to pick a frame
+off. The OneShot's 0.10 s fade-in needs no allowance on top: the clip barely
+moves for its first 0.21 s, so the blend has long finished before anything the
+eye is following depends on it.
+
+**Four consequences, and they are the interesting part.**
+
+- *The windup is a broadcast of its own.* A tell only the thrower can see is not
+  a tell. The thrower plays the animation on its own click; the host relays a
+  cosmetic `_do_throw_windup` to everyone else, and the thrower's copy of that
+  relay returns early on `_gub.is_local()` — replaying it half a round trip in
+  would snap the arm back to the start of a throw it was in the middle of.
+  `_do_throw_spear` no longer calls `play_throw()` at all, for the same reason.
+  The relay is deliberately **not** gated on the host's cooldown: it is
+  cosmetic, and a Gub that winds up and produces no spear is an honest picture
+  of a client that asked for a throw it could not have.
+- *The cooldown starts at the click, and the HUD had to be told.* The input is
+  spent either way, and a crosshair that sits ready through half a second of
+  windup only invites the second click that will be refused. The local
+  prediction is therefore `THROW_RELEASE_TIME + spear_recharge`, and the HUD
+  divides by `GubCombat.spear_cycle()` rather than by the recharge alone —
+  otherwise the ring pegs at full through the windup and then jumps, which reads
+  as a stall rather than as a throw being made. The host's
+  `_server_spear_ready_at` still starts when the throw actually happens, and the
+  two land on the same instant.
+- *The held spear stays in the hand until the release.* `HeldSpear`'s header
+  says an empty hand is how other players read that you are harmless, so the
+  timing has to be honest: the hand empties at 0.57 s, when the spear really is
+  gone, and not on the click.
+- *A windup can be cancelled.* Dying, being respawned, or losing ownership
+  mid-windup drops the throw — the animation is left to fade out on its own,
+  because it is cosmetic, but no spear comes out of it. `reset()` clears a
+  pending one along with the cooldowns.
+
+**What it cost the harnesses.** `tools/smoke_test.sh`'s "spear kills" check
+snapshots `combat_range` in `hit` mode, which clicks on tick 20; the spear now
+appears on tick 55 and the kill lands on tick 75, so that warmup went from 70
+ticks to 110. The old count would have failed with a message that reads exactly
+like a broken throw. `tools/net_loopback.gd` needed no change at all — its stage
+7 waits on the spear *existing*, with a 20 s timeout, rather than on a frame
+count. That is the difference between a harness that waits for an outcome and
+one that waits for a clock, and only one of them survives a timing change.
+
+## D-026 — Single jump and double-tap dive, and why the old one froze
+The same playtest reported two things that turned out to be one thing: "the dive
+plays one time in a hundred", and "there is a weird position the jump goes into
+that isn't the actual animation".
+
+`Jump` is 2.37 s and was never a jump. It is a full dive — leap, tumble, roll,
+stand up — and D-008 already measured it arcing 12.6 m forward and 3.0 m up
+before the pipeline locked the root joint. It sat as input 1 of the `grounded`
+Blend2 as a plain `AnimationNodeAnimation`, and **an animation node inside a
+blend runs its own clock from the moment the tree starts**, whether or not
+anything is blending toward it. So the first jump of a match caught the clip
+somewhere near its beginning and looked more or less right, and 2.37 s into the
+round the clip reached its last frame and stopped there for good. Every later
+jump showed one frozen pose from the end of a dive. It was never one jump in a
+hundred working — it was the *first* one, and nothing after it.
+
+The fix is two clips out of the one file, and that is the design change:
+
+**A single jump is the take-off only, and it restarts.** The airborne node uses
+a custom timeline over 0.34-0.50 s of `Jump` — the push-off, and the legs coming
+up under the body — with `stretch_time_scale` off so it plays at authored speed
+and `loop_mode` none so it runs out and *holds*. 0.00-0.30 s is the anticipation
+crouch, which has already happened by the time the Gub is off the ground; past
+0.50 s the clip pitches over into the dive it really is. An
+`AnimationNodeTimeSeek` in front of it is driven to 0 every time the feet leave
+the ground, so the sixth jump of a match is the same as the first.
+
+That seek hangs off the grounded→airborne *transition* rather than off
+`Gub.jumped`, on purpose: `jumped` fires only on the owning client, while
+`is_grounded()` reads the replicated `sync_grounded` on everyone else's screen.
+One code path then covers the Gub you are driving, the seven you are watching,
+and stepping off a ledge.
+
+**A double jump is the dive, whole.** Press jump while already airborne, once
+per airtime, and the Gub commits: `DIVE_FORWARD_SPEED` (9.5 m/s, well above
+RUN_SPEED, or it would be a worse way of running) along the wish direction — or
+the facing, if you are asking for nothing — plus `DIVE_UP_VELOCITY` (5.4 m/s,
+enough to keep it airborne long enough for the leap to read, not enough to clear
+the treeline). No further air jumps until the feet touch anything at all, and
+the flag comes back on landing and on respawn. The lure still blocks it, because
+the lure is meant to feel like being grabbed.
+
+The gate is `_coyote <= 0.0`, which is what makes a double-tap on flat ground
+jump first and dive second rather than dive twice: coyote time is still running
+for the twelfth of a second after walking off a ledge, and is zeroed by a jump.
+An airborne press past that point dives instead of going into the jump buffer.
+That costs the buffer exactly one press per airtime, which is the price of the
+ability having a button at all.
+
+**Remote Gubs see it because a number changed, not because a message arrived.**
+`Gub.sync_dive_serial` is an `int` on the existing `MultiplayerSynchronizer`
+(spawn, on-change), bumped once per dive; `GubAnimator` fires the dive OneShot
+whenever the value it last acted on stops matching. A counter and not a flag,
+because a bool that goes true and false again inside one replication tick
+arrives as no change at all, and two dives in a row have to be two dives on
+every screen. No new RPC, and one code path for the local Gub and the remote
+ones — the pattern `sync_grounded` already set.
+
+The one place the clip and the physics cannot be reconciled is the landing. The
+dive clip is 2.37 s and a dive is airborne for well under a second, so its
+tumble-and-recover half can never line up with a real touchdown; the OneShot is
+faded out on landing rather than left to play a ground roll on top of a run
+cycle.
+
+Noted here and deliberately not fixed: `Crouch` is a two-keyframe held pose.
+That is an art limitation, not a fault in the graph.
+
+## D-027 — Readability passes: the name shrinks, the spear is lit, the landing is drawn
+Three complaints from the same playtest, all of them about what the player can
+*see* rather than about what the game does.
+
+**"That's the biggest bug right now is you can't see the spear."** Part of that
+was the throw RPC and is fixed elsewhere. The rest is that a thrown stick is a
+thin, dark, fast object in a night forest, and nothing about it was loud. Three
+changes, in order of how much each one bought:
+
+- The trail is twice as long — `SpearTrail.SAMPLES` 12 → 24, which is 0.4 s of
+  flight and about seventeen metres — nearly twice as wide (`HALF_WIDTH` 0.055
+  → 0.09), and warm instead of pale blue. The colour mattered more than
+  expected: the old streak sat in the same range as the sky and the fog and was
+  swallowed by both, while every other thing in this game worth looking at is
+  torch-coloured. Its brightness falls off as `t^1.4` rather than `t²`, because
+  squared put the whole ribbon in its front quarter and made the extra length
+  decorative. It is still one additive draw call and still shortens to nothing
+  0.4 s after impact.
+- The projectile is lit in flight and unlit the moment it stops. This is
+  smaller than it sounds, because of something worth writing down about the
+  art: **every model in `art/generated` has a black albedo and a pre-shaded
+  emission texture**, so a Gub and a spear are already made entirely of
+  emission. There is no glow to add, only one to turn up, and it has to be
+  turned up through `emission_energy_multiplier` — the materials' emission
+  operator is multiply, so giving one a warm colour *darkens* its blue instead
+  of warming it. `GLOW_BOOST` is 3.0, tuned by eye rather than by theory: the
+  environment tonemaps ACES at a white point of 6.0, and at the 1.25 that
+  sounded right on paper the spear was indistinguishable from an unlit one. A
+  copy of the material per projectile, freed with it, the way `GubRagdoll`
+  copies materials to fade a corpse.
+- The glow comes off in `_stick` and `_stick_in`. A spear in the dirt and a
+  spear through a corpse are scenery and have to read as scenery; leaving them
+  lit would make every miss a beacon and every body a lamp.
+
+**"I wish I knew where my spear was going, does it have drop?"** It does — a
+third of world gravity — and no crosshair can answer that question, because the
+crosshair is a point on a ray and the spear flies a parabola. So the answer is
+drawn in the world: `scripts/player/aim_marker.gd`, a ring on the ground where a
+spear thrown right now would land, shown only while the aim button is held and
+only for the Gub you are driving. Local, cosmetic, and nowhere near the network.
+
+Two things about it are load-bearing. The first is that the path is not a
+closed-form parabola but the projectile's *own* integration loop — same speed,
+same gravity, same mask, same exclusion of the thrower, and crucially the same
+step, because Euler integration is step-size dependent and predicting at 30 Hz
+would put the ring metres from where the spear actually lands. The second is
+that a flat ring alone does not work. It is seen from eye height along a nearly
+flat throw, which foreshortens it to a line about one pixel tall at the ranges
+anybody throws from; the first render of it looked like nothing at all. What
+makes it visible is the low band standing up off the ring's rim — a vertical
+surface is never edge-on to a camera roughly level with it.
+
+It is gated on the aim button rather than always on, deliberately. Judging the
+arc is where a lot of the skill in this fight lives (D-014, D-025), and a
+permanent marker turns the throw from something you read into something you line
+up. Holding the button is the price of the answer, and it costs the wider field
+of view while you ask.
+
+`tools/combat_range.tscn` gained an `aim` mode for it: it holds the button at
+the far wall and never throws, which is a state no other mode here spends a
+single frame in, because every other mode's job is to get the projectile out of
+the hand. It aims deliberately off the centre line — straight down it the spear
+meets Dummy 1 at fourteen metres and the ring is drawn on a Gub's chest, which
+proves the marker works on players and shows nothing about drop — and it prints
+where the ring landed, so a run says something without anybody opening the PNG.
+Aimed at a wall 43 m away it reports the spear coming down on open dirt at 23 m,
+19.8 m short and 1.2 m low. That number *is* the answer to the question.
+
+**"The names are too big."** `Nameplate` was `fixed_size`, which pins a label to
+a constant number of screen pixels at any range. That reads as correct in a
+screenshot and wrong in motion: a name across the island was exactly as large as
+the name on the Gub beside you, so a crowd came out as a wall of identical
+floating text with the players somewhere behind it. Perspective is the cue that
+says which name belongs to which body, and it was the one thing being thrown
+away. The plate now has a size in the world — `FONT_SIZE * PIXEL_SIZE`, about
+0.21 m tall, so a six-letter name is roughly the width of a Gub's shoulders —
+and it shrinks and grows with the Gub like everything else.
+
+Two consequences. The fade came down with it, from 34-46 m to 20-28 m: at a
+fixed screen size the old numbers were honest, but in perspective a name at 34 m
+is four or five pixels tall and is no longer a name, it is a smear saying
+"somebody is over there", which the Gub's own silhouette already says for free.
+Fading it out where it stops being readable is the same decision the old numbers
+made, applied to a plate that now has a size. And `GubBackdrop` lost its
+`plate_scale`: it existed to shrink lobby plates by 0.60 and 0.40 because those
+formations are shot at 42 and 36 degrees against the game's 75, and a fixed-size
+plate does not care how wide the lens is. A plate with a world size does — the
+narrow lens magnifies the name and the Gub under it by exactly the same amount —
+so the two now stay matched with nothing to tune. The lobby renders
+pixel-for-pixel the same as it did with the correction in place, which is the
+proof that the correction was only ever undoing the bug.
+
+**Corpses, one line.** `GubRagdoll.LINGER` 9.0 → 2.5 s and `FADE` 1.6 → 0.8 s.
+All of the value in a ragdoll is the flight, and the flight is over in about a
+second and a half; after that a body is clutter, and at eight players with a
+three-second respawn the corpse from your last kill was still lying between you
+and your next one. `tools/smoke_test.sh` moved its ragdoll grab from tick 160 to
+155, which is now a narrow window with a reason at each end: `ragdoll_stability`
+does not print its verdict until tick 150, and the corpse starts fading at 160
+and is gone by 208.

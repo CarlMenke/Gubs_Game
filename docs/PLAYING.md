@@ -29,11 +29,18 @@ reopen the lobby.
 |---|---|---|---|
 | Move | `W` `A` `S` `D` | Throw spear | Left click |
 | Jump | `Space` | Aim | Right click |
-| Sprint | `Shift` | Place shield mushroom | `Q` |
-| Crouch | `Ctrl` or `C` | Throw lure | `E` |
-| Scoreboard | `Tab` (hold) | Interact | `F` |
-| Chat | `T` | Respawn | `R` |
+| Dive | `Space` again in the air | Place shield mushroom | `Q` |
+| Sprint | `Shift` | Throw lure | `E` |
+| Crouch | `Ctrl` or `C` | Interact | `F` |
+| Scoreboard | `Tab` (hold) | Respawn | `R` |
+| Chat | `T` | | |
 | Pause / settings | `Esc` | | |
+
+Two of those are worth a sentence. **Double-tap `Space`** — jump, then jump
+again while you are still in the air — is a dive: a long committed leap that you
+only get once per jump and cannot take back. And the **spear does not leave on
+the click**: the Gub winds up first and throws about half a second later, aimed
+where you are pointing *then*, so a moving target has to be led.
 
 ## If something goes wrong
 

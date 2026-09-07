@@ -17,6 +17,7 @@ signal died(killer_id: int, cause: int)
 signal respawned()
 signal landed(fall_speed: float)
 signal jumped()
+signal dived()
 signal threw_spear(origin: Vector3, direction: Vector3)
 
 enum Cause { SPEAR, FALL, VOID, UNKNOWN }
@@ -47,6 +48,22 @@ const GROUND_FRICTION := 42.0
 ## mid-air dodging the dominant way to avoid a spear.
 const AIR_ACCELERATION := 12.0
 const AIR_FRICTION := 1.5
+
+## The dive: jump again while already in the air and the Gub commits to a leap
+## along whichever way it is trying to go. Once per airtime — that is what makes
+## it a decision rather than free flight — and the `Jump` clip is played whole
+## for it, because that clip was always a dive (**D-008**) and was never an
+## ordinary jump.
+##
+## The forward speed is deliberately well above RUN_SPEED: a dive that moved you
+## no faster than running would be a worse way of running. Air friction is
+## almost nothing (AIR_FRICTION 1.5), so this is very close to how fast the Gub
+## is still travelling when it lands.
+const DIVE_FORWARD_SPEED := 9.5
+## Modest on purpose. The dive is meant to carry you *across* a gap, not over the
+## treeline: at 24 m/s² this is 0.6 m of extra height on its own, and enough to
+## keep the Gub in the air long enough for the leap to read.
+const DIVE_UP_VELOCITY := 5.4
 
 ## A jump pressed this long after walking off an edge still counts.
 const COYOTE_TIME := 0.12
@@ -92,6 +109,11 @@ const LAYER_DEPLOYABLE := 8
 @export var sync_crouching: bool
 @export var sync_sliding: bool
 @export var sync_grounded: bool
+## Bumped once per dive. A counter and not a flag, because a flag that goes true
+## and false again inside one replication tick arrives as no change at all, and
+## two dives in a row have to be two dives on every screen. `GubAnimator` watches
+## it, so remote Gubs fire the dive from the same value their own client wrote.
+@export var sync_dive_serial: int = 0
 
 var display_name: String = "Gub"
 ## The spear in the Gub's hand. Hidden while one is in flight.
@@ -115,6 +137,8 @@ var body_yaw: float = 0.0
 
 var _coyote: float = 0.0
 var _jump_buffered: float = 0.0
+## Spent by the dive, returned by touching the ground.
+var _air_jump_spent: bool = false
 var _slide_time: float = 0.0
 var _slide_cooldown: float = 0.0
 var _crouch_blend: float = 0.0
@@ -388,8 +412,43 @@ func target_speed() -> float:
 	return RUN_SPEED if wants_sprint else JOG_SPEED
 
 
+## One key, two moves. On the ground (or inside coyote time) this is an ordinary
+## jump and goes through the buffer, so a press a frame early still fires on
+## touchdown. Already airborne with the air jump unspent, it is the dive, and
+## that has to happen *now* rather than being buffered — a dive that fired when
+## you landed would be the opposite of what was asked for.
 func request_jump() -> void:
+	if _can_dive():
+		_dive()
+		return
 	_jump_buffered = JUMP_BUFFER
+
+
+## The dive is available once per airtime, and only from a real airtime:
+## `_coyote` is still running for the twelfth of a second after walking off a
+## ledge and is zeroed by a jump, so requiring it spent means the second press of
+## a double-tap on flat ground jumps first and dives second, never dives twice.
+func _can_dive() -> bool:
+	if not alive or _air_jump_spent or is_lured():
+		return false
+	return not is_on_floor() and _coyote <= 0.0
+
+
+func _dive() -> void:
+	_air_jump_spent = true
+	_jump_buffered = 0.0
+	# Where you are asking to go, or where you are looking if you are asking for
+	# nothing. A dive with no direction at all would be a very expensive hop.
+	var direction := _wish_direction()
+	if direction.length_squared() < 0.0001:
+		direction = facing()
+	velocity.x = direction.x * DIVE_FORWARD_SPEED
+	velocity.z = direction.z * DIVE_FORWARD_SPEED
+	# `maxf` and not `+=`: diving out of a fall should still lift, and a dive off
+	# the top of a jump should not stack its way into orbit.
+	velocity.y = maxf(velocity.y, 0.0) + DIVE_UP_VELOCITY
+	sync_dive_serial += 1
+	dived.emit()
 
 
 func _handle_jump() -> void:
@@ -409,6 +468,11 @@ func _detect_landing(grounded_before: bool) -> void:
 	var grounded_now := is_on_floor()
 	if grounded_now and not grounded_before and _fall_speed > 3.0:
 		landed.emit(_fall_speed)
+	# Touching anything at all gives the dive back, including a ledge caught on
+	# the way down. Tying it to `landed` instead would leave a Gub that stepped
+	# gently off a rock unable to dive for the rest of the match.
+	if grounded_now:
+		_air_jump_spent = false
 	_was_grounded = grounded_now
 
 
@@ -547,6 +611,8 @@ func revive_at(spawn: Transform3D) -> void:
 	_slide_time = 0.0
 	_crouch_blend = 0.0
 	_lure_until = 0.0
+	_air_jump_spent = false
+	_jump_buffered = 0.0
 	_apply_capsule(STAND_HEIGHT)
 	_publish()
 	respawned.emit()

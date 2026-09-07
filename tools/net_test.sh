@@ -16,10 +16,10 @@
 # invite code the host prints, and reduces the pair to one PASS/FAIL.
 #
 # It currently exits non-zero, and that is the correct answer rather than a
-# broken tool: all eight stages pass, and the run then reports three engine
-# errors raised by shipping code in `scripts/` that the offline peer had been
-# hiding. They are printed with an explanation apiece at the bottom of the run.
-# When they are fixed this goes green on its own; nothing here needs editing.
+# broken tool: all nine stages pass, and the run then reports the engine errors
+# raised by shipping code in `scripts/` that the offline peer had been hiding.
+# They are printed with an explanation apiece at the bottom of the run. When
+# they are fixed this goes green on its own; nothing here needs editing.
 #
 # Notes for anyone running it:
 #   * Both processes share Godot's user data directory (it is keyed on the
@@ -173,6 +173,7 @@ echo
 # the same reason it proves nothing in `smoke_test.sh`: Godot prints a
 # SCRIPT ERROR and carries straight on running.
 peers_failed=0
+rpc_refused=0
 for pair in "host:$HOST_LOG:$host_rc" "client:$CLIENT_LOG:$client_rc"; do
     who="${pair%%:*}"
     rest="${pair#*:}"
@@ -185,6 +186,16 @@ for pair in "host:$HOST_LOG:$host_rc" "client:$CLIENT_LOG:$client_rc"; do
     elif grep -q "SCRIPT ERROR" "$log"; then
         echo "FAIL (script error)"
         peers_failed=1
+    # A refused RPC gets its own line rather than being left to the engine-error
+    # summary below, because of where the damage shows up. Godot prints
+    # `RPC 'x' is not allowed on node ...` on the *receiver* and carries on, so
+    # the sender is told nothing and the stage that depended on the call times
+    # out somewhere else entirely — which is how a non-host's abilities reaching
+    # nobody survived eight green stages and a release tag (D-024).
+    elif grep -q "is not allowed on node" "$log"; then
+        echo "FAIL (an RPC was refused)"
+        peers_failed=1
+        rpc_refused=1
     elif ! grep -qF "net_loopback: PASS" "$log"; then
         echo "FAIL (never said PASS)"
         peers_failed=1
@@ -194,12 +205,22 @@ for pair in "host:$HOST_LOG:$host_rc" "client:$CLIENT_LOG:$client_rc"; do
 done
 echo
 
+if [ "$rpc_refused" -ne 0 ]; then
+    echo "  An @rpc was refused by the peer it arrived at: the mode on the method and"
+    echo "  the authority of the node it landed on disagree. An \"authority\" RPC is"
+    echo "  checked against whoever owns the *receiving* node, so a broadcast from the"
+    echo "  host that lands on a node the host does not own is dropped. The message"
+    echo "  below names the method, the node and the sender. D-024 is the one this"
+    echo "  check was added for."
+    echo
+fi
+
 if [ "$peers_failed" -ne 0 ]; then
     fail "one of the two peers failed"
 fi
 
 # -------------------------------------------------------- what Godot said ---
-# Eight green stages and two clean exit codes prove less than they look like
+# Nine green stages and two clean exit codes prove less than they look like
 # they do. Godot prints an error and carries straight on running, which is why
 # `smoke_test.sh` treats a SCRIPT ERROR as a failure (D-015); these are engine
 # errors rather than script errors and the same argument applies to them. Every
@@ -267,6 +288,6 @@ note_if "Unable to get unique ID" \
     "  a host who closed the lobby, logs three of these per frame until the" \
     "  scene finally changes."
 
-echo "net: FAIL   (the eight stages passed; the engine did not stay quiet)"
+echo "net: FAIL   (the nine stages passed; the engine did not stay quiet)"
 echo "net:        logs in $LOG_DIR"
 exit 1

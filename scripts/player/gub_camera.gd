@@ -219,6 +219,14 @@ func camera() -> Camera3D:
 	return _camera
 
 
+## True while the aim button is held and this Gub is ours to aim. Read by
+## `GubCombat`, which hangs the spear's drop indicator off it: the indicator is
+## the answer to "where would this land", and that question is only being asked
+## while somebody is holding the button down.
+func is_aiming() -> bool:
+	return _aiming
+
+
 func yaw() -> float:
 	return _yaw
 

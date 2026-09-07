@@ -52,8 +52,7 @@ const UNDERGROWTH := ["Bush_Common", "Bush_Common_Flowers", "Fern_1", "Plant_1",
 const FLOOR_DRESSING := ["Mushroom_Common", "Rock_Medium_1", "Rock_Medium_2",
 	"Pebble_Round_2", "Pebble_Square_3", "Clover_1", "Flower_4_Group"]
 
-## Framing per formation: where the camera sits, what it aims at, how wide, and
-## how much to shrink the nameplates.
+## Framing per formation: where the camera sits, what it aims at, and how wide.
 ##
 ## The aim point is deliberately off to one side in HERO so the subject sits
 ## right of centre without the camera itself going off-axis and skewing him.
@@ -65,24 +64,25 @@ const FLOOR_DRESSING := ["Mushroom_Common", "Rock_Medium_1", "Rock_Medium_2",
 ## be wider than the ring itself: the first version planted boulders at three
 ## metres and the lobby became six Gubs standing behind a rock.
 ##
-## `plate_scale` exists because `Nameplate` is `fixed_size`: its height on
-## screen is set by the field of view and nothing else, so a plate authored to
-## read at the game's 75 degrees is roughly twice the size it should be at
-## these. Shrinking the node is the only lever from out here, and it keeps the
-## lobby plates matched to the ones over the same heads in a match.
+## There used to be a `plate_scale` here, and it is worth saying why there is
+## not one now. `Nameplate` was `fixed_size`, so its height on screen came from
+## the field of view and nothing else — and these formations are shot at 42 and
+## 36 degrees against the game's 75, which made a lobby plate about twice the
+## size of the one over the same head in a match. Shrinking the node was the
+## only lever from out here. The plate now has a real size in the world, so a
+## narrow lens magnifies the name and the Gub under it by exactly the same
+## amount, and the two stay matched with nothing to tune.
 const FRAMING := {
 	Formation.HERO: {
 		"eye": Vector3(2.90, 1.78, 4.55),
 		"look": Vector3(-1.65, 1.16, -0.20),
 		"fov": 42.0,
-		"plate_scale": 0.60,
 		"clear_radius": 1.1,
 	},
 	Formation.RING: {
 		"eye": Vector3(0.0, 3.10, 8.20),
 		"look": Vector3(0.0, 0.62, 0.0),
 		"fov": 36.0,
-		"plate_scale": 0.40,
 		"clear_radius": 5.6,
 	},
 }
@@ -199,7 +199,6 @@ func _apply_slot(index: int) -> void:
 	if plate != null:
 		plate.set_display_name(gub.display_name)
 		plate.set_team(team)
-		plate.scale = Vector3.ONE * float(FRAMING[formation]["plate_scale"])
 
 
 func _slot_transform(index: int, count: int) -> Transform3D:

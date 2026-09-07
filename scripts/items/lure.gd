@@ -13,6 +13,15 @@ extends Node3D
 ## The host owns every decision here. Movement is client-authoritative, so a
 ## caught Gub cannot be moved by the host directly; instead the host tells that
 ## client it is being pulled and the client's own movement code obeys.
+##
+## That message is sent on the *victim's* `Gub/Combat` node rather than on this
+## one, and the reason is worth knowing: an RPC is addressed by node **path**,
+## and a lure has no path two machines agree on. Every peer builds its own copy
+## into `spawned_items`, and the moment a second lure is in the air Godot
+## disambiguates the duplicate name with a counter local to that process — so
+## the pull could be delivered to a node the receiver has under a different
+## name, or, before D-024 was fixed, to no node at all. `GubCombat` is
+## `Players/Gub_<peer>/Combat` everywhere. See `GubCombat.apply_lure_pull`.
 
 const MODEL := preload("res://art/generated/lure.glb")
 
@@ -168,9 +177,12 @@ func _catch() -> void:
 		# Both used to be logged on every lure that caught the host or a
 		# departing player.
 		if target.peer_id == multiplayer.get_unique_id():
-			_pull_target(global_position, _strength, _hold)
+			target.apply_lure(global_position, _strength, _hold)
 		elif multiplayer.get_peers().has(target.peer_id):
-			_pull_target.rpc_id(target.peer_id, global_position, _strength, _hold)
+			var combat := target.get_node_or_null("Combat") as GubCombat
+			if combat != null:
+				combat.apply_lure_pull.rpc_id(target.peer_id, global_position,
+					_strength, _hold)
 	caught.emit(victims)
 
 
@@ -182,16 +194,6 @@ func _can_see(target: Gub) -> bool:
 	query.collision_mask = LAYER_WORLD
 	query.exclude = [target.get_rid()]
 	return space.intersect_ray(query).is_empty()
-
-
-## Received by the client that owns the caught Gub. Its own movement code is what
-## actually applies the pull — see `Gub._apply_lure`.
-@rpc("any_peer", "call_remote", "reliable")
-func _pull_target(centre: Vector3, strength: float, duration: float) -> void:
-	for gub in get_tree().get_nodes_in_group("gubs"):
-		var target := gub as Gub
-		if target != null and target.is_local():
-			target.apply_lure(centre, strength, duration)
 
 
 func _tick_pull(delta: float) -> void:
