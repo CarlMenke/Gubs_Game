@@ -24,6 +24,7 @@ func _ready() -> void:
 	_shape()
 	_normalisation()
 	_rejects_rubbish()
+	_address_selection()
 
 	print("invite_codes: %d checks, %d failures" % [_checks, _failures])
 	print("invite_codes: %s" % ("PASS" if _failures == 0 else "FAIL"))
@@ -144,3 +145,62 @@ func _rejects_rubbish() -> void:
 	# refused rather than handed to the network layer.
 	var zero_port := InviteCode.encode("192.168.1.50", 0)
 	_check("port 0 is not a valid code", InviteCode.is_valid(zero_port), false)
+
+
+## Which address ends up *in* the code, which is the other half of the joining
+## story and the half that fails silently. A wrong choice here still produces a
+## perfectly valid code - it just encodes an address the other player cannot
+## reach, so the join looks like a firewall problem instead of an addressing one.
+func _address_selection() -> void:
+	print("-- address selection")
+
+	var lan := {"name": "eth0", "friendly": "Ethernet", "addresses": ["192.168.1.50"]}
+	var ten := {"name": "eth0", "friendly": "Ethernet", "addresses": ["10.0.7.200"]}
+	var tail := {"name": "tailscale0", "friendly": "Tailscale", "addresses": ["100.101.102.103"]}
+	var loop := {"name": "lo", "friendly": "Loopback", "addresses": ["127.0.0.1"]}
+	var link := {"name": "eth1", "friendly": "Ethernet 2", "addresses": ["169.254.4.4"]}
+	var wan := {"name": "eth2", "friendly": "WAN", "addresses": ["203.0.113.7"]}
+
+	# The bug this exists to prevent: a tailnet address must beat a LAN one. It
+	# reaches both - two peers on one tailnet route directly across a shared LAN -
+	# whereas a LAN address strands everybody who is not in the building.
+	_check("tailnet beats LAN", Net.select_ipv4([loop, lan, tail]), "100.101.102.103")
+	_check("tailnet beats LAN whichever order they arrive in",
+		Net.select_ipv4([tail, lan]), Net.select_ipv4([lan, tail]))
+	_check("LAN when no tailnet is up", Net.select_ipv4([loop, lan]), "192.168.1.50")
+	_check("10.x is a LAN too", Net.select_ipv4([loop, ten]), "10.0.7.200")
+
+	# A tailnet is recognised by interface name as well as by range, because the
+	# range alone cannot tell a mesh from a carrier doing NAT.
+	_check("named interface counts even off-range",
+		Net.select_ipv4([lan, {"name": "tailscale0", "friendly": "", "addresses": ["10.55.0.1"]}]),
+		"10.55.0.1")
+	_check("range counts even when the name is opaque",
+		Net.select_ipv4([lan, {"name": "utun3", "friendly": "", "addresses": ["100.90.1.2"]}]),
+		"100.90.1.2")
+	_check("100.x above the block is not a tailnet",
+		Net.select_ipv4([{"name": "eth9", "friendly": "", "addresses": ["100.200.1.2"]}, lan]),
+		"192.168.1.50")
+	_check("100.x below the block is not a tailnet",
+		Net.select_ipv4([{"name": "eth9", "friendly": "", "addresses": ["100.63.1.2"]}, lan]),
+		"192.168.1.50")
+
+	# Addresses that are well-formed and useless.
+	_check("link-local is skipped", Net.select_ipv4([loop, link, lan]), "192.168.1.50")
+	_check("loopback is skipped", Net.select_ipv4([loop, lan]), "192.168.1.50")
+	_check("a routable address beats nothing", Net.select_ipv4([loop, wan]), "203.0.113.7")
+	_check("LAN still beats a routable address", Net.select_ipv4([wan, lan]), "192.168.1.50")
+
+	# Nothing usable at all must still return something dialable rather than "".
+	_check("no usable interface falls back to loopback", Net.select_ipv4([loop]), "127.0.0.1")
+	_check("no interfaces at all falls back to loopback", Net.select_ipv4([]), "127.0.0.1")
+
+	# The 172.16-31 carrier-private window, at both edges.
+	for octet: int in [16, 31]:
+		_check("172.%d is a LAN" % octet,
+			Net.select_ipv4([{"name": "e", "friendly": "", "addresses": ["172.%d.0.9" % octet]}]),
+			"172.%d.0.9" % octet)
+	for octet: int in [15, 32]:
+		_check("172.%d is not a LAN, so LAN wins" % octet,
+			Net.select_ipv4([{"name": "e", "friendly": "", "addresses": ["172.%d.0.9" % octet]}, lan]),
+			"192.168.1.50")

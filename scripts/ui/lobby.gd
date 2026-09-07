@@ -229,8 +229,8 @@ func _refresh_invite() -> void:
 		_code_label.text = String(Settings.get_value("last_invite_code")).to_upper()
 		_copy_button.disabled = false
 		return
-	_code_caption.text = "INVITE CODE"
-	_code_label.text = Net.lan_invite_code()
+	_code_caption.text = "%s INVITE CODE" % Net.invite_scope()
+	_code_label.text = Net.invite_code()
 	_copy_button.disabled = false
 
 

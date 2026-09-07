@@ -563,23 +563,73 @@ func _rematch() -> void:
 
 # ------------------------------------------------------------- addressing ---
 
-## The address other players on this network should dial. Prefers a private LAN
-## address over anything else, since that is the case that works with no setup.
-func local_ipv4() -> String:
-	var private: String = ""
-	var fallback: String = ""
-	for address: String in IP.get_local_addresses():
-		if address.count(".") != 3 or address.begins_with("127."):
-			continue
-		if address.begins_with("192.168.") or address.begins_with("10.") \
-				or _is_carrier_private(address):
-			if private.is_empty():
-				private = address
-		elif fallback.is_empty():
-			fallback = address
-	if not private.is_empty():
-		return private
-	return fallback if not fallback.is_empty() else "127.0.0.1"
+## Interfaces belonging to a mesh VPN, by name. Matched case-insensitively as a
+## substring, so `tailscale0` and Windows' friendly `Tailscale` both hit.
+## Deliberately short and specific: a loose token like `utun` would also match
+## every unrelated VPN on macOS and hand out its address instead.
+const MESH_INTERFACES: Array[String] = ["tailscale", "zerotier"]
+
+
+## Which of this machine's addresses to put in an invite code.
+##
+## The order is the whole point, and it is not the obvious one: a **mesh VPN**
+## address beats a LAN address, because it reaches both. Two players on the same
+## tailnet connect straight across the LAN when they happen to share one, so a
+## tailnet code works at the kitchen table *and* across the country, while a LAN
+## code only works at the table. The LAN address wins only when no mesh is up.
+##
+## Getting this backwards is not a visible failure. It hands out a well-formed
+## code encoding an address the other player cannot route to, and the join fails
+## looking like a firewall problem rather than an addressing one.
+##
+## Pure, and takes the interface list rather than reading it, so it can be
+## tested against machines this is not one of — see `tools/invite_codes.gd`.
+static func select_ipv4(interfaces: Array) -> String:
+	var mesh: String = ""
+	var lan: String = ""
+	var other: String = ""
+	for interface: Dictionary in interfaces:
+		var meshed := _names_a_mesh(interface)
+		for address: String in interface.get("addresses", []):
+			if not _is_usable_ipv4(address):
+				continue
+			if meshed or _is_mesh_range(address):
+				if mesh.is_empty():
+					mesh = address
+			elif _is_lan(address):
+				if lan.is_empty():
+					lan = address
+			elif other.is_empty():
+				other = address
+	if not mesh.is_empty():
+		return mesh
+	if not lan.is_empty():
+		return lan
+	return other if not other.is_empty() else "127.0.0.1"
+
+
+static func _names_a_mesh(interface: Dictionary) -> bool:
+	var label := ("%s %s" % [interface.get("name", ""), interface.get("friendly", "")]).to_lower()
+	for token: String in MESH_INTERFACES:
+		if label.contains(token):
+			return true
+	return false
+
+
+## 100.64.0.0/10 — the shared-address block Tailscale and ZeroTier allocate
+## from. An ISP doing carrier NAT uses the same block, but that lands on the
+## router's WAN side rather than on an interface of this machine, so seeing it
+## here means a mesh in every ordinary case.
+static func _is_mesh_range(address: String) -> bool:
+	if not address.begins_with("100."):
+		return false
+	var second := address.split(".")[1].to_int()
+	return second >= 64 and second <= 127
+
+
+static func _is_lan(address: String) -> bool:
+	return address.begins_with("192.168.") or address.begins_with("10.") \
+			or _is_carrier_private(address)
 
 
 static func _is_carrier_private(address: String) -> bool:
@@ -589,8 +639,33 @@ static func _is_carrier_private(address: String) -> bool:
 	return second >= 16 and second <= 31
 
 
-## The invite code to hand to players on the same network.
-func lan_invite_code() -> String:
+## Loopback is useless to anyone else, and 169.254.x is what an interface gets
+## when DHCP failed — a code built from either cannot be joined.
+static func _is_usable_ipv4(address: String) -> bool:
+	return address.count(".") == 3 and not address.begins_with("127.") \
+			and not address.begins_with("169.254.")
+
+
+## The address other players should dial.
+func local_ipv4() -> String:
+	return select_ipv4(IP.get_local_interfaces())
+
+
+## How far the current code reaches, for the caption printed above it. A player
+## who can see that a code is LAN-only does not spend ten minutes wondering why
+## a friend three states away cannot use it.
+func invite_scope() -> String:
+	var address := local_ipv4()
+	if _is_mesh_range(address):
+		return "TAILNET"
+	if address == "127.0.0.1":
+		return "LOCAL"
+	return "LAN" if _is_lan(address) else "INTERNET"
+
+
+## The invite code to hand to other players. Reaches as far as `invite_scope()`
+## says it does.
+func invite_code() -> String:
 	return InviteCode.encode(local_ipv4(), _bound_port if _bound_port > 0 else DEFAULT_PORT)
 
 

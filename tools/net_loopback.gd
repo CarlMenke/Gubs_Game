@@ -53,15 +53,15 @@ extends Node
 ##      given binary does it. With the firewall off there is none. If a run
 ##      hangs with no `code=` line, look for a dialog.
 
-## Dialled explicitly rather than through `Net.lan_invite_code()`. That helper
-## encodes `Net.local_ipv4()`, which deliberately prefers a *private LAN*
-## address (192.168.x, 10.x, carrier-private 172.16-31.x) so that the code it
-## hands a player is the one that works with no setup. That is right for the
-## game and wrong here: on a machine with Wi-Fi up it produces a code pointing
-## at the LAN interface, which loops back through the network stack rather than
-## through lo0 and fails outright on a machine with no network at all. The
-## harness prints the LAN code too, so `InviteCode.encode` is still shown
-## agreeing with `Net.lan_invite_code()` about everything but the address.
+## Dialled explicitly rather than through `Net.invite_code()`. That helper
+## encodes `Net.local_ipv4()`, which prefers a tailnet address, then a private
+## LAN one, so that the code it hands a player reaches as far as it can. That is
+## right for the game and wrong here: on a machine with Wi-Fi or Tailscale up it
+## produces a code pointing at a real interface, which loops back through the
+## network stack rather than through lo0 and fails outright on a machine with no
+## network at all. The harness prints the real code too, so `InviteCode.encode`
+## is still shown agreeing with `Net.invite_code()` about everything but the
+## address.
 const LOOPBACK_IP := "127.0.0.1"
 
 ## Both sides ask for the same name on purpose: that is check 3. The host's is
@@ -207,8 +207,8 @@ func _run_host() -> void:
 	var code := InviteCode.encode(LOOPBACK_IP, Net.hosting_port())
 	# The line `tools/net_test.sh` polls for. Everything else can move.
 	print("net_loopback: code=%s" % code)
-	print("net_loopback: lan_code=%s  (Net.lan_invite_code(), for a real player)"
-		% Net.lan_invite_code())
+	print("net_loopback: real_code=%s  %s  (Net.invite_code(), for a real player)"
+		% [Net.invite_code(), Net.invite_scope()])
 	print("net_loopback: listening on %s:%d" % [LOOPBACK_IP, Net.hosting_port()])
 
 	var ok := await _stage_connect()
