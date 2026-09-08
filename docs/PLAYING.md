@@ -73,8 +73,8 @@ same Wi-Fi needs nothing at all. The caption says **LAN**.
 Two of those are worth a sentence. **Double-tap `Space`** — jump, then jump
 again while you are still in the air — is a dive: a long committed leap that you
 only get once per jump and cannot take back. And the **spear does not leave on
-the click**: the Gub winds up first and throws about half a second later, aimed
-where you are pointing *then*, so a moving target has to be led.
+the click**: the Gub winds up first and throws about three quarters of a second
+later, aimed where you are pointing *then*, so a moving target has to be led.
 
 Hold right click and a ring appears on the ground where your spear would
 actually land. Spears drop, and that ring is the only honest answer to how much.

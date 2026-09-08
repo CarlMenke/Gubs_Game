@@ -26,16 +26,27 @@ four things that each correspond to a specific thing going wrong:
                clips that are supposed to cycle. This is the visible hitch once
                per stride that no amount of blending hides.
 
-               Measured after subtracting the root joint, because a run cycle is
-               *supposed* to end several units in front of where it started and
-               the pipeline strips that travel out later. Left in, the forward
-               motion swamps the seam and every locomotion clip looks broken.
+               Measured after re-centring every frame on its own centroid, so
+               what is left is the change in *pose*. `tools/build_gub.py` locks
+               the root motion out before export, but a clip that still
+               travelled would otherwise swamp the seam with its stride and
+               every locomotion clip would look broken.
 
   asymmetry    How differently the left and right halves of the mesh are bound,
-               after mirroring one onto the other and swapping .L for .R. The
-               Gub's mesh is symmetric; if its weights are not, it limps.
+               after mirroring one onto the other and swapping `Left` for
+               `Right` in the joint names. A body whose halves are bound
+               differently limps.
+
+               Only vertices that actually have a mirror twin count, and the
+               Mixamo mesh is a sculpt rather than a mirrored model: its two
+               halves agree in outline but not vertex for vertex, so the twin is
+               the nearest vertex across x=0 within `MIRROR_TOLERANCE` of the
+               body's own size, and the header line says what share of the mesh
+               that found. Read the row as "are the weights on these two lumps
+               of surface the same", not as an exact per-vertex difference.
 
 Usage:  python tools/rig_report.py [path/to.glb ...]
+        default: art/generated/gub.glb, the built Gub.
 """
 
 import os
@@ -53,7 +64,32 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAMPLE_FPS = 60.0
 
 # Clips whose last frame is meant to flow back into their first.
-CYCLIC = ("Idle", "SlowRun", "FastRun", "CrouchWalk", "Crouch")
+CYCLIC = ("Idle", "Walk", "Run", "CrouchWalk", "CrouchIdle")
+
+# How far a vertex may be from the mirror image of another and still count as
+# its twin, as a fraction of the body's bounding-box diagonal. See the note on
+# `asymmetry` at the top: this is a surface-to-surface tolerance, not float
+# slack, because the mesh is not a mirrored model.
+MIRROR_TOLERANCE = 0.02
+
+# Suffixes an exporter or importer convention adds to a clip's own name. Godot's
+# scene importer sets `loop_mode` on any animation whose name ends in `loop` or
+# `cycle`, so `tools/build_gub.py` exports the looping clips with a `-loop`
+# tail; `.001` is what a second action of the same name looks like. Neither is
+# part of the clip's identity, and both have to come off before the name is
+# matched against CYCLIC.
+NAME_SUFFIXES = ("-loop", "_loop", "-cycle", "_cycle")
+
+
+def clip_base(name):
+    """A clip's own name, with exporter suffixes stripped."""
+    head, dot, tail = name.rpartition(".")
+    if dot and tail.isdigit():
+        name = head
+    for suffix in NAME_SUFFIXES:
+        if name.lower().endswith(suffix):
+            return name[:-len(suffix)]
+    return name
 
 
 # ---------------------------------------------------------------- sampling ---
@@ -218,8 +254,12 @@ def skin_frames(gltf, animation, positions, joints, weights, ibm, joint_nodes, t
     return out
 
 
-def mirror_pairs(positions, tolerance=1e-3):
-    """For each vertex, the index of its mirror across x=0, or -1 if it has none."""
+def mirror_pairs(positions, tolerance):
+    """For each vertex, the index of its mirror across x=0, or -1 if it has none.
+
+    `tolerance` is in model units; the caller scales it by the body size, since
+    the same mesh exported at two different scales has to score the same.
+    """
     mirrored = positions.copy()
     mirrored[:, 0] *= -1.0
     dist, idx = cKDTree(positions).query(mirrored, k=1)
@@ -227,14 +267,19 @@ def mirror_pairs(positions, tolerance=1e-3):
 
 
 def side_swap(names):
-    """joint index -> the index of its left/right counterpart."""
+    """joint index -> the index of its left/right counterpart.
+
+    Mixamo names sides as a prefix (`LeftForeArm`, `RightHandThumb2`), where the
+    Rigify rig this replaced used a `.L`/`.R` suffix. A bone with no side, or
+    one whose counterpart is missing, maps to itself.
+    """
     lookup = dict((n, i) for i, n in enumerate(names))
     out = np.arange(len(names))
     for i, name in enumerate(names):
-        if name.endswith(".L"):
-            twin = name[:-2] + ".R"
-        elif name.endswith(".R"):
-            twin = name[:-2] + ".L"
+        if name.startswith("Left"):
+            twin = "Right" + name[4:]
+        elif name.startswith("Right"):
+            twin = "Left" + name[5:]
         else:
             continue
         if twin in lookup:
@@ -279,16 +324,17 @@ def report(path):
 
     # -- binding ---------------------------------------------------------
     dense = dense_weights(joints, weights, len(joint_nodes))
-    twin_vert = mirror_pairs(positions)
+    twin_vert = mirror_pairs(positions, MIRROR_TOLERANCE * size)
     twin_joint = side_swap(names)
     paired = twin_vert >= 0
     mirrored = dense[twin_vert[paired]][:, twin_joint]
     asym = np.abs(dense[paired] - mirrored).sum(axis=1) * 0.5   # 0..1 per vertex
     print("")
     print("  binding")
-    print("    %d verts, %d tris, %d joints; %d have a mirror twin (%.0f%%)"
+    print("    %d verts, %d tris, %d joints; %d have a mirror twin within "
+          "%.1f%% of body size (%.0f%%)"
           % (len(positions), len(faces), len(joint_nodes), int(paired.sum()),
-             100.0 * paired.mean()))
+             100.0 * MIRROR_TOLERANCE, 100.0 * paired.mean()))
     print("    left/right asymmetry:  mean %.3f  p95 %.3f  max %.3f   (0 = mirrored exactly)"
           % (asym.mean(), np.percentile(asym, 95), asym.max()))
     influences = (weights > 1e-6).sum(axis=1)
@@ -327,7 +373,7 @@ def report(path):
         seam = float(np.linalg.norm(onspot[-1] - onspot[0], axis=1).mean() / size)
 
         name = animation.get("name", "?")
-        cyclic = name.split(".")[0] in CYCLIC
+        cyclic = clip_base(name) in CYCLIC
         # Growth in model units, not as a multiple: see the note on `torn` at
         # the top. A max is one vertex; this is how much of the skin is in
         # trouble at a size anyone could see.
@@ -350,7 +396,7 @@ def report(path):
 
 
 def main(argv):
-    paths = argv[1:] or [os.path.join(REPO, "assets", "source", "Gub.glb")]
+    paths = argv[1:] or [os.path.join(REPO, "art", "generated", "gub.glb")]
     for path in paths:
         report(path)
 

@@ -379,9 +379,12 @@ func _create_gub(peer_id: int, spawn: Transform3D) -> void:
 
 	_players_root.add_child(gub)
 	# `revive_at` rather than assigning the transform: it also seeds the
-	# replicated fields. Without that, every other peer's copy starts with
-	# `sync_position` at the arena origin and visibly slides in from the middle
-	# of the map before the owner's first packet arrives.
+	# replicated fields, one by one and by hand. Without that, every other peer's
+	# copy starts with `sync_position` at the arena origin and visibly slides in
+	# from the middle of the map before the owner's first packet arrives — and
+	# `sync_grounded` is worse, because the value a remote copy would compute for
+	# itself is permanently false and the owner's never changes, so ON_CHANGE
+	# replication has nothing to correct it with. See D-029.
 	gub.revive_at(spawn)
 	gub.grant_invulnerability(config().spawn_protection)
 

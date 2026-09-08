@@ -118,6 +118,14 @@ of what that means:
   eight-Gub lobby, HUD, scoreboard, kill feed, pause, settings, chat, results.
 - **Combat** is a one-hit spear, a mushroom you cannot be shot through, and a
   lure that drags people into the open.
+- **The Gub itself was rebuilt** (D-029). Eight Mixamo FBX files become one
+  `art/generated/gub.glb` through `tools/build_gub.py` — nine clips, 10.5k
+  triangles, 1.80 m, root motion locked and every clip's facing aligned — and
+  `GubAnimator` is a new tree built to a rule that makes the old freeze
+  impossible: ground poses come from speed, air poses come from the arc, events
+  are one-shots. The collision capsule now follows the pose (stand 1.55, crouch
+  1.35, slide 0.75), the spear sits in the fist instead of through the head, and
+  a corpse reads as a body.
 
 ---
 
@@ -238,7 +246,10 @@ and the tool quietly uses its defaults. Pass them literally.
   worked before was **widening** the joint spans in `RagdollBuilder.SEGMENTS`,
   not tightening them; `GubRagdoll.IMPACT_TRANSFER` (0.15) is the other dial, and
   above ~0.2 contact starts amplifying and the corpse gets punted. Reproduce with
-  `combat_range` in `hit` mode around tick 100.
+  `combat_range` in `hit` mode around tick 100. D-029 tightened the *neck* to
+  35°/25° against that grain and swept the alternatives to find out why it could
+  go no further: 25° reaches 160 m/s and 18° reaches 285 m/s, because the spans
+  have to cover the bend the death pose already contains.
 - **Two spawn pads can end up ~3.8 m apart** on the default seed. `_next_spawn`
   prefers a pad with nobody near it, so it rarely bites, but the ring solver in
   `arena.gd` could enforce a minimum separation between pads as well as a slope
@@ -246,6 +257,37 @@ and the tool quietly uses its defaults. Pass them literally.
 - **The lobby's match panel scrolls without saying so.** The rows past "Spear
   recharge" are reachable but the scrollbar is invisible against the theme, so
   the panel reads as clipped rather than scrollable.
+
+Five more are limitations of the source art rather than faults in the code, and
+D-029 argues each one out rather than pretending it is fixed:
+
+- **`CrouchWalk`'s feet slip 53%** at the game's crouch speed (Walk 9.4%, Run
+  16.3%). The clip is authored at 1.273 m/s and would need its rate nearly
+  doubled to plant, for 0.17 m/s of gain.
+- **`JumpTwo`'s ground roll is authored below the floor** — the skin reaches
+  0.247 m under the plane in the clip's first 0.15 s of roll. Those hips keys
+  sit below the clip's first key, so the pipeline's vertical rule cannot lift
+  them; `ROLL_CLIP_START` is 1.62 rather than the 1.48 the air scrub hands over
+  at, which skips the most-sunk stretch (within 0.10 m of the floor from there)
+  at the cost of the first two frames of the tumble. A few centimetres of
+  sinking remain through the rest of the roll.
+- **The nameplate crosses the model at dive apex.** The plate is pinned to the
+  capsule at 1.80 m while `JumpTwo` keeps a 0.618 m pelvis rise. The fix is to
+  offset it by the model's own head height, in `scripts/player/nameplate.gd`.
+- **A sliding Gub is hard to hit.** The slide capsule is vertically right but a
+  vertical capsule cannot follow a prone body whose head is half a metre forward
+  of the axis.
+- **A held spear vanishes when its Gub dies.** `GubRagdoll._adopt_spears` adopts
+  embedded projectiles, not the carried one, so a corpse carries the spear that
+  killed it and not the one it was holding. Pre-existing.
+
+One thing two reviewers flagged is settled: **`ROLL_LOCK` is a ground rule.**
+A Gub that rolls off a ledge inside the 0.45 s lock used to keep the lock in
+the air — no air control, `ROLL_FRICTION` (10.0) instead of `AIR_FRICTION`
+(1.5). `_tick_timers` now zeroes `_roll_lock` the moment the feet leave the
+floor, so the fall is an ordinary fall. Whether the lock itself (0.45 s of no
+input after a dive landing) feels right is still a play-test question; it is one
+constant and 0.0 turns it off.
 
 ---
 
@@ -255,15 +297,27 @@ and the tool quietly uses its defaults. Pass them literally.
   adds energy rather than clamping. Too floppy looks rubbery; too tight explodes.
 - `LURE_GRAVITY` in `gub_combat.gd` must equal `Lure.GRAVITY`. The arc is solved
   in one file and flown in the other (D-014).
-- The character scale (0.35) is baked at **import time**, not applied to the
-  model node. A scaled `Skeleton3D` gives scaled rigid bodies and the ragdoll
-  capsules stop matching the mesh.
+- **The Gub is authored at 1.80 m and imported at `root_scale 1.0`** — the whole
+  model, skeleton included, is in metres, so a bone attachment offset and a
+  ragdoll capsule radius mean what they say. Never scale the model node instead:
+  a scaled `Skeleton3D` gives scaled rigid bodies and the capsules stop matching
+  the mesh. (The old asset was imported at 0.35; that is D-002, and D-029
+  replaced it.)
 - The Gub mesh is authored facing **+Z**; `gub.tscn` turns the model 180° so
   `body_yaw` means "the way the Gub is looking" in Godot's -Z-forward convention.
 - Ragdolls are local and cosmetic and deliberately **not replicated** (D-010).
-- Movement speeds are the clips' authored speeds × `Gub.SPEED_SCALE` (1.35), with
-  the locomotion clips played back at that same factor. **Do not change one
-  without the other** — that is what keeps the feet planted (D-008).
+- **Game speeds and clip speeds are separate numbers, and the animator divides
+  them.** `Gub.WALK_SPEED` / `RUN_SPEED` / `CROUCH_SPEED` are gameplay choices;
+  `AUTHORED_WALK` / `AUTHORED_RUN` / `AUTHORED_CROUCH_WALK` are what
+  `tools/build_gub.py` measured in the clips. Each locomotion node plays at
+  `game / authored` in its own custom timeline, which is what keeps the feet
+  planted. Change a game speed freely; only re-measure an authored one if the
+  clip itself changes (D-029).
+- **Nothing in the animation tree runs a clock it does not own.** Every node is
+  either a looping cycle, a OneShot that restarts on fire, or scrubbed every
+  frame — because an `AnimationNodeAnimation` sitting in a blend runs from tree
+  start and freezes on its last frame, which is what broke the old jump and
+  slide (D-026, D-029).
 - Sound placement encodes a rule: **3D means an event in the world that gives
   your position away; 2D means feedback only you could have** (D-016).
 - `queue_free()` is deferred. A `while` loop that frees a child and re-reads

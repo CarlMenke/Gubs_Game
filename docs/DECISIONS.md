@@ -11,12 +11,16 @@ build). Forward+ renderer because the map leans on volumetric fog, many small dy
 torch lights, and SDFGI/SSAO — all Forward+-only or Forward+-preferred features.
 
 ## D-002 — World scale: 1 unit = 1 metre
+*The Gub's half of this is history: it is now authored at 1.80 m and imported at
+`root_scale 1.0` (**D-029**). Everything else still holds.*
 The Stylized Nature MegaKit is authored at roughly human scale (a common tree is ~7 m
 tall, tall grass ~1.8 m). The supplied `Gub.glb` is 5.18 units tall in bind pose, so the
 Gub is imported at **0.35 scale** → ~1.81 m. Spear (1.90 units) is scaled to ~0.75 →
 1.42 m. This lets us use realistic gravity and jump tuning without fighting the kit.
 
 ## D-003 — Source meshes are decimated offline
+*The Gub is no longer one of these targets — it has its own pipeline,
+`tools/build_gub.py` (**D-029**). The three props below are unchanged.*
 Every supplied `.glb` (`Gub`, `Spear`, `Lure`, `Mushroom/base_*`) is a ~500,000-triangle
 photogrammetry-style mesh with a 4K texture. Eight networked Gubs plus spears, deployed
 mushrooms and lures would be 5M+ triangles per frame before shadows — untenable.
@@ -75,6 +79,9 @@ explicitly on top of the generated terrain, so the map still reads as designed r
 than as noise.
 
 ## D-008 — The Gub's animation clips needed three fixes before they were usable
+*History. The asset these fixes were applied to no longer exists — the Gub was
+rebuilt from eight Mixamo clips in **D-029**, which had to solve the facing
+problem below a second time, on a different rig.*
 Inspecting `Gub.glb` turned up three problems that would each have been a
 mysterious bug later. All three are fixed in `tools/decimate_assets.py`, so they
 stay fixed across re-imports rather than being patched around in game code.
@@ -550,6 +557,8 @@ the lure's client-side pull reads as fair to the person being pulled. That needs
 two machines and remains the largest untested thing in the project.
 
 ## D-023 — The Gub's skin was rebound, because the tearing was in the weights
+*History. The mesh, the rig and `tools/rig_clean.py` are all gone — see **D-029**,
+which records what the replacement asset is worse at, measured with the same tool.*
 D-008 fixed what was wrong with the Gub's *clips*. It did not touch what was
 wrong with its *bind*, and that was the larger problem: at a dead run, triangles
 detached from the Gub's back and hung in the air behind it.
@@ -723,6 +732,8 @@ That is the same lesson as D-018 and D-019 with a new seam: **a harness proves
 what it exercises, and this one was exercising only the host.**
 
 ## D-025 — The spear leaves the hand at the animation's release, not at the click
+*Still the design. The number moved: the release is 0.71 s into the new throw clip,
+not 0.57 s, and it is derived rather than measured by hand — see **D-029**.*
 The first playtest's complaint was "it throws and then the animation comes in
 later". It was right, and it was the wrong way round: `try_throw_spear` spawned
 the projectile on the frame of the click and fired the `SpearThrow` OneShot
@@ -789,6 +800,9 @@ count. That is the difference between a harness that waits for an outcome and
 one that waits for a clock, and only one of them survives a timing change.
 
 ## D-026 — Single jump and double-tap dive, and why the old one froze
+*Still the design, on a rebuilt graph. The clips, the windows and the freeze-proof
+rule are **D-029**; the input design and the serial-not-flag pattern below are
+unchanged.*
 The same playtest reported two things that turned out to be one thing: "the dive
 plays one time in a hundred", and "there is a weird position the jump goes into
 that isn't the actual animation".
@@ -1062,3 +1076,514 @@ into a loopback test. `Net.ignore_public_address` exists for that, set by the
 harness before it hosts. Turned off explicitly rather than by clearing the
 setting, because clearing it would write to the file the person running the test
 is about to host a real game with.
+
+## D-029 — The Gub was rebuilt from eight Mixamo clips, and its animator was rebuilt around them
+Two playtest complaints, one root: "the transitions are poor" and "you never see
+the whole jump or the whole slide". D-026 had already found the mechanism for
+half of it — an `AnimationNodeAnimation` inside a blend runs its own clock from
+tree start and freezes on its last frame — and fixed it for the jump by carving
+a 0.16 s slice out of a 2.37 s dive. The slide had the identical bug and nobody
+had looked. Behind both sat an asset that could not give a better answer: one
+`Gub.glb`, an 18k decimation of a 500k-triangle photogrammetry mesh on a
+hand-made Rigify rig, carrying eight clips — one of which had shipped as the
+bind pose where a crouch should be (D-023), and one of which was a whole dive
+where a jump should be (D-026).
+
+So the instruction was to replace the asset and **not to base the new
+implementation on the old one**. Both halves of that happened, and this entry is
+the record of what the new source actually turned out to be, which was not what
+anyone assumed. The retired source, `assets/source/Gub.glb`, is deleted from the
+tree in the same commit: nothing builds from it any more, and git history has it
+if D-008 or D-023 ever need re-reading against the file they describe.
+
+### The source, and the one script that builds it
+
+`assets/source/GUB_2/` holds eight Mixamo FBX files — same character, same mesh,
+one clip each at 60 fps, a 2048² base-colour JPG packed in every file. All eight
+agree on 8814 vertices, 49 bones, 40 vertex groups and a bind pose identical to
+a matrix delta of **0.0**, which is what makes consolidating them into one
+armature legitimate rather than hopeful.
+
+`tools/build_gub.py` (Blender 5.2, headless, 1303 lines) does the whole
+conversion and prints every measurement it takes, in the style
+`tools/decimate_assets.py` established. `bash tools/build_gub.sh` locates
+Blender the way `tools/find_godot.sh` locates Godot. Three consecutive runs
+produce a **byte-identical** `art/generated/gub.glb`, so "rebuild it and see" is
+a real answer to a question.
+
+Three things in that script exist only because Blender or the exporter lied
+first:
+
+- **Blender 5.2 actions are layered and slotted.** `action.fcurves` does not
+  exist; the curves are at `action.layers[].strips[].channelbags[].fcurves`.
+  Every loop in the script goes the long way round for that reason.
+- **Applying an armature's scale does not scale its pose-bone `location`
+  fcurves.** The mesh comes out 1.80 m tall and the root motion stays at a fifth
+  of it, so the Gub travels a fifth of the distance its feet do. 960 location
+  fcurves are multiplied by the armature-local factor **1.903149** by hand at
+  the moment the transform is applied. Every measurement is then re-derived at
+  scale before anything is stripped — Run's hips travel 1.941 m in 0.450 s,
+  JumpOne's reach 1.120 m at 0.750 s — so a scale mistake fails loudly instead
+  of shipping.
+- **The extracted texture is named after the image's *filepath*, not its
+  datablock.** Renaming the datablock to `basecolor` was not enough; the first
+  build produced `gub_cartoon+monster+3d+model_basecolor.jpg`. The script sets
+  `image.filepath_raw = '//basecolor.jpg'`, and because the embedded image stays
+  JPEG the file Godot extracts is **`art/generated/gub_basecolor.jpg`**, not the
+  `.png` everyone including the spec expected.
+
+The old `art/generated/gub_shaded.png` is deleted, `tools/rig_clean.py` and
+`tools/rig_math.py` with it, and `tools/decimate_assets.py` — which is now three
+unskinned props and nothing else — raises rather than silently discarding a rig
+if a source ever turns out to be skinned.
+
+### The clips
+
+Nine, not the eight that arrived: `CrouchIdle` is synthesised from `CrouchWalk`
+frame 37, the passing pose, after root-motion locking so its hips sit at the
+origin. Lengths are what Godot reports; the four cycles are one frame shorter
+than the source because the duplicate tail key is dropped (`DROP_LOOP_TAIL`), or
+the loop holds its first pose twice.
+
+| clip | length | loops | authored speed | playback rate in game |
+|---|---|---|---|---|
+| `Idle` | 4.15 s | yes | 0 | 1.0 |
+| `Walk` | 1.233 s | yes | **1.079 m/s** | 2.1316 |
+| `Run` | 0.433 s | yes | **4.314 m/s** | 1.2517 |
+| `CrouchWalk` | 1.117 s | yes | **1.273 m/s** | 1.2569 |
+| `CrouchIdle` | 1.000 s | yes | 0 | 1.0 |
+| `Slide` | 1.767 s | no | 3.9→1 m/s | 1.0 |
+| `JumpOne` | 1.883 s | no | 0 (in place) | scrubbed |
+| `JumpTwo` | 2.367 s | no | leaps 4.6 m | scrubbed |
+| `Throw` | 3.833 s | no | steps ~0.9 m | 1.6 |
+
+**Every clip faced a different way**, which is D-008's problem arriving a second
+time on a completely different rig. The build measures each clip's facing by
+forward kinematics — the yaw of the `LeftUpLeg`→`RightUpLeg` line in world space
+— against the rest pose measured identically, and pre-multiplies the Hips
+`rotation_quaternion` keys by the compensating yaw about the bone's local +Y.
+The corrections are not small: Idle **+50.96°**, CrouchIdle +39.48, JumpOne
++38.20, CrouchWalk +37.74, Slide −35.58, JumpTwo −19.19, Throw +17.59, Run
+−6.22, Walk +1.06. All nine now measure **0.00°** residual against the same
+reference, and the build aborts above 1°. Motion *within* a clip is untouched:
+the slide still turns 120° onto its side and the throw's torso still swings 162°.
+
+**Loop modes are declared in the GLB, not in the `.import`.** `_subresources`
+with `settings/loop_mode` does work — but Godot then rewrites `gub.glb.import`
+with every default for every animation it names, all 256 `slice_N` blocks
+apiece: **348,496 bytes instead of 1,137**, regenerated on every import, with
+the answer to "does this clip loop?" split across two files. So the five cycles
+are exported as `Idle-loop`, `Walk-loop`, `Run-loop`, `CrouchWalk-loop`,
+`CrouchIdle-loop`; Godot's importer strips the suffix and sets `LOOP_LINEAR`.
+`_subresources={}`, and `nodes/use_name_suffixes` must stay true or the clips
+arrive with `-loop` still in their names. The single source of truth for which
+clips loop is the `CLIPS` table in `build_gub.py`. Anything that reads the GLB
+directly rather than through Godot has to strip the suffix, which is why
+`tools/rig_report.py` has a `clip_base()`.
+
+### The vertical rule: one clamp was right and one was catastrophic
+
+Both jump clips rise — JumpOne's pelvis by 0.41 m, JumpTwo's by 0.57 — and the
+physics capsule already performs that arc, so the first pass clamped the hips Y
+to its first key in both. For **JumpOne**, a vertical hop, that is exactly
+right: the legs tuck under a pelvis that stays put and the ballistic motion is
+left to the body that is really doing it.
+
+For **JumpTwo** it was a disaster, and the reason is that JumpTwo is not a jump.
+It is a front somersault that plants its hands and rolls out. Pin the pelvis and
+the inverted body rotates about a point 0.62 m too low: head and hands went
+**0.41 m below the floor** from clip 1.00 to 1.60 s, and the dive touched down
+upside-down. The raw clip is self-consistent — the hands reach the ground at
+1.18 s *because* the hips are high.
+
+    VERTICAL_RISE_KEPT = {"JumpOne": 0.0, "JumpTwo": 1.0}
+
+The up axis is scaled toward the first key by `1 − kept`, so 0.0 is the old flat
+clamp and 1.0 leaves the clip alone; only keys *above* the first key move, so
+every clip keeps its landing absorb and ground roll either way. With the rise
+kept, JumpTwo's hips top out at **0.900 s** at 1.293 m (0.618 m above the first
+key), the hands take the ground at **1.183 s** and stay down until 1.833, and
+the feet arrive at 1.530. Those are the numbers `JUMP_TWO_APEX` and the roll
+window are read off.
+
+**The build now refuses to ship a clip that goes through the floor.** After
+processing, `check_ground()` samples every bone head over each jump, prints the
+deepest one either side of the frame the hands plant, and aborts against a
+per-clip `FLOOR_LIMIT`. A companion `check_tables()` refuses a build whose rule
+table names a clip that is not built, or a clip with no limit.
+
+| | JumpOne | JumpTwo |
+|---|---|---|
+| deepest joint, shipped | −0.141 m (`LeftToe_End`, 0.583 s) | −0.167 m (`RightHandThumb4`, 1.400 s) |
+| deepest joint while airborne | — | −0.103 m (1.183 s) |
+| deepest joint if clamped | — | **−0.410 m** (1.167 s) |
+| `FLOOR_LIMIT` | −0.15 | −0.20 |
+
+`FLOOR_LIMIT["JumpTwo"]` is −0.20 and not the −0.08 that was asked for, because
+**no build of this clip can meet −0.08**: the *authored* ground roll takes a
+knuckle to −0.167 m at 1.400 s, and those hips keys are below the clip's first
+key, which the vertical rule deliberately never touches. The first run with
+−0.08 aborted correctly and refused to write the GLB, which is how we know the
+check works. −0.20 still bites: a clamped JumpTwo measures −0.410.
+
+### The graph, and the one sentence that makes D-026's bug impossible
+
+`scripts/player/gub_animator.gd` is a new `AnimationNodeBlendTree` built in
+code. The rule it is built to is written at the top of the class:
+
+> **Ground poses come from speed, air poses come from the arc, events are
+> one-shots.** Nothing in the tree runs a clock that is not either a looping
+> locomotion cycle, a OneShot that restarts on fire, or a node that is scrubbed
+> every frame.
+
+```
+stand    BlendSpace1D  Idle @ 0 | Walk @ 2.3 | Run @ 5.4      (positions in game m/s)
+crouch   BlendSpace1D  CrouchIdle @ 0 | CrouchWalk @ 1.6
+stance   Blend2(stand, crouch)
+air_one  TimeSeek -> JumpOne    scrubbed to an absolute clip time every frame
+air_two  TimeSeek -> JumpTwo    scrubbed every frame
+air      Blend2(air_one, air_two)     1 while this airtime contains a dive
+grounded Blend2(stance, air)
+slide -> land -> roll -> throw  four chained OneShots; throw filtered to 37 upper-body bones
+```
+
+Every locomotion node carries its own rate in a custom timeline
+(`timeline_length = length / (game_speed / authored_speed)`,
+`stretch_time_scale = true`, node-level `LOOP_LINEAR`), so the feet stay planted
+without a global TimeScale node and without the `.import` having an opinion.
+That replaces `SPEED_SCALE`, `JOG_SPEED` and `AUTHORED_JOG`, which are gone.
+
+**The airborne clips are indexed, not played.** JumpOne is 0.35 s airborne
+against a 0.70 s physics jump, so a clock can never agree with the body:
+
+    phase = clamp(0.5 * (1 - vy / v_launch), 0, 1)    # 0 leaving, 0.5 apex, 1 about to land
+    t     = phase < 0.5 ? lerp(START, APEX, phase / 0.5)
+                        : lerp(APEX,  END,  (phase - 0.5) / 0.5)
+
+    JumpOne  START 0.68  APEX 0.83  END 0.95    v_launch = JUMP_VELOCITY (9.0)
+    JumpTwo  START 0.58  APEX 0.90  END 1.48    v_launch = vy when the dive serial changed
+
+`JUMP_ONE_START` is 0.68 rather than 0.60 because the push-off frames before it
+extend the legs 0.13 m below the floor and the physics take-off is instant
+anyway. A Gub that walks off a ledge has vy ≈ 0, so phase *starts* at 0.5 — the
+apex pose — and falls through to the pre-landing pose. Falls are covered by the
+same mechanism with no extra clip.
+
+**The trap in that rule, which only a trace found:** `move_and_slide` zeroes vy
+on touchdown, the arc reads vy = 0 as "apex", and the air pose snapped back to
+the top of the leap on the landing frame — a **0.48 m hip pop** on every
+landing. A grounded Gub now holds the about-to-land pose instead; the residual
+bump is 0.14 m.
+
+**Every unweighted cycle was frozen at phase 0.** `sync = false` on the two
+BlendSpace1Ds and the three Blend2s meant a node nothing was blending toward did
+not advance, so the sprint entry cross-faded a *static* Run frame into a
+mid-stride Walk — the same class of defect as D-026, one layer up. Measured on
+the shipped tree: after 1.5 s of walking, `parameters/stand/{idle,walk,run}` and
+`crouch/{still,walk}` all read `current_position` **0.0000**. With `sync = true`
+they read 0.2816 / 0.0540 / 0.5503 and advance. (`sync` is the legacy alias:
+setting it true reads back as `sync_mode = INDEPENDENT`.
+`SYNC_MODE_CYCLIC_MUTABLE` would go further and phase-*lock* them — measured at
+26.4% against 26.5% of their own timelines — at the cost of the phase rate
+stepping once as the blend crosses the midpoint. Not shipped; noted for whoever
+tunes the sprint entry.)
+
+The throw's window is `[0.50, 2.10]` of `Throw` at rate 1.6, and
+`THROW_RELEASE_TIME` is now derived rather than tasted:
+
+    (THROW_RELEASE_IN_CLIP - THROW_CLIP_START) / THROW_RATE = (1.633 - 0.50) / 1.6 = 0.7081 s
+
+which is **42.5 physics ticks**, up from D-025's 0.57 s / 34 ticks on the old
+`SpearThrow`. `gub_combat.gd` reads it from `GubAnimator`, so the number exists
+once. The kill in `combat_range hit` lands about tick 83 of the 110-tick budget;
+the lure's 132 is unaffected.
+
+### Emission 0.15, because the new texture is not pre-shaded
+
+The old asset was a pre-shaded emission texture and was always visible (D-027).
+This one is a flat base colour with a Principled BSDF over it, and at night in
+unlit undergrowth it measured **1.5×** the shadowed background — a brown smudge
+at 20 m — while the still-pre-shaded spear in its hand stayed bright. The build
+wires the base-colour texture into Emission Color at `--emission`, default
+**0.15**:
+
+| | 0.00 | 0.15 |
+|---|---|---|
+| distant Gub in unlit undergrowth, mean luminance | 21.7 | 38.9 |
+| …as a ratio to the shadowed background | 1.51× | 2.71× |
+| torch-lit Gub against the sky, mean luminance | 43.4 | 64.0 |
+| …its *peak* luminance | 166 | 142 |
+| clipped channels, either view | 0 | 0 |
+
+The peak falling is the point: 0.15 lifts the shadow side into legibility
+without flattening the shading gradient or turning the Gub into a lamp, and the
+torch flames are still the brightest things in frame. At exactly 0 the emission
+socket is left unconnected rather than wired to black — a wired-but-black
+emission is a second texture sample per fragment that can never do anything.
+
+### The hitbox follows the pose the clips actually strike
+
+The new crouch is not a low pose. Measured silhouette heights: Idle 1.49 m,
+**CrouchWalk 1.51**, Run 1.41, Walk 1.73 (the antennae). `CROUCH_HEIGHT` was
+0.95, which left the whole chest and head outside the capsule and made a
+crouching Gub's head **unhittable**. It is now **1.35**.
+
+The slide is the opposite problem and is genuinely prone — the hips drop to
+0.165 m — so `SLIDE_HEIGHT := 0.75` is layered on the crouch blend through a new
+`pose_height()` that the capsule, `eye_height()`, `_has_headroom()` and
+`_follow_network` all read, so a remote Gub is shaped like a local one.
+
+| pose | capsule top | mesh top | eye height |
+|---|---|---|---|
+| idle / run | 1.55 | 1.427 / 1.412 | 1.33 |
+| crouch | 1.35 | 1.499 | 1.16 |
+| slide | 0.77 | 0.730 | 0.65 |
+
+1014 of 8818 vertices are still above the crouch capsule — 602 of them the two
+antennae and the crown of the head blob, 412 the raised right fist. That is
+0.10 m of crown and 0.29 m of antenna, against 0.56 m of chest-and-head before.
+For scale: **the old asset had 0.5 m of head outside its crouch capsule too**,
+so this is not a defect that was introduced, it is one that was measured. The
+capsule *radius* is unchanged at 0.38 m, so in every pose the spread feet and
+out-held arms are outside it laterally — most obviously in the slide, where a
+vertical capsule cannot follow a prone body at all.
+
+### One number for the roll, shared by the rule and the animation
+
+`ROLL_LOCK` (0.45 s of ignored input and gentle friction after a dive landing,
+so the body travels with the roll instead of skating through it) is a new
+gameplay rule, and it needed three coherence fixes:
+
+- It outlived the floor. A dive that landed on a ledge and carried over its edge
+  kept the lock in the air: no air control, and `ROLL_FRICTION` (10.0) dragging
+  on the fall instead of `AIR_FRICTION` (1.5). Two reviewers found it
+  independently. `_tick_timers` now zeroes `_roll_lock` the moment the feet
+  leave the floor — the roll is a ground move, and a fall out of it is an
+  ordinary fall.
+- It armed on *any* landing, including a one-tick scuff off a kerb.
+  `Gub.ROLL_MIN_AIRTIME := 0.20` now gates it, and the animator's
+  `LAND_MIN_AIRTIME` is literally `Gub.ROLL_MIN_AIRTIME` — the rule and the
+  animation cannot drift apart because there is one constant.
+- The comment on `_handle_jump` promised that a jump pressed during the roll
+  fires when the lock ends. It did not: the buffer decays in 0.14 s and the lock
+  lasts 0.45. `_jump_buffered` is now frozen while `is_rolling()`. Measured:
+  lock armed at tick 106, press at 112, jump fired at **134** — the first tick
+  `is_rolling()` was false — at vy exactly 9.00. Before, that press was silently
+  dropped at tick 120.
+
+`Gub.vertical_speed()` returns `velocity.y` locally and `sync_velocity.y`
+remotely, and feeds both the arc scrub and the dive launch speed. On a remote
+Gub that is a tick fresher than `velocity`, because the synchronizer writes
+`sync_velocity` before `_follow_network` copies it out.
+
+**Respawn used to pin every remote copy airborne.** `revive_at()` ended with
+`_publish()`, which sets `sync_grounded = is_on_floor()` — and on a remote copy
+`is_on_floor()` is permanently false. The owner's own value never changed
+(true→true), so ON_CHANGE replication never corrected it, and every other screen
+showed a Gub falling on the spot. `revive_at` now seeds the replicated fields
+field by field, `sync_grounded = true` among them, because a spawn pad is on the
+ground.
+
+### The spear was in the Gub's head, and the fix was 5 cm
+
+The idle is a boxer's guard: the right fist sits beside the face. The first
+grip, derived against a three-ellipsoid stand-in for the body, ran the shaft **in
+under the chin and out above the crown** — nearest-skin distance 0.004 m, i.e.
+through the surface — and in Walk the tip ploughed the ground at 0.004 m. The
+stand-in was the error: the real belly is 0.37 m half-depth and the head 0.35 m
+across.
+
+Re-derived against the actual skinned mesh — 27 poses over the six clips the
+spear is carried in, scoring the shaft's distance to the nearest
+head-or-torso-weighted vertex:
+
+    HAND_BONE      "RightHand"
+    GRIP_OFFSET    (-0.206, -0.582, 0.097)
+    GRIP_ROTATION  (-12, 0, -15)
+
+A near-vertical Idle carry — shaft 81–86° above horizontal, 53° round from
+forward toward the Gub's own right — with the fist 55% up the 1.236 m shaft so
+the butt clears the ground when the arm hangs. `GRIP_OFFSET` is *derived*, not
+free: it is the palm pass-point minus `0.55 × 1.236 ×` the shaft direction, and
+it has to be recomputed if `GRIP_ROTATION` changes.
+
+The 5 cm that matter are lateral. Passing the shaft 5 cm off the wrist axis
+instead of through it is what takes it from grazing the face to 11 cm clear, and
+5 cm is still inside the fist — the `RightHand`-weighted skin spans
+x −0.083…0.085, z −0.065…0.065.
+
+| nearest skin, metres | Idle | Walk | Run | CrouchWalk | CrouchIdle | Throw |
+|---|---|---|---|---|---|---|
+| before | 0.004 | 0.029 | 0.080 | 0.019 | 0.061 | 0.006 |
+| after | **0.114** | 0.151 | 0.254 | 0.187 | 0.193 | 0.055 |
+
+Walk and Run still point the tip *down* (−14…−42° and −43…−59°) and that is not
+fixable with a rigid `BoneAttachment3D`: the hand's world orientation differs by
+more than 100° between a raised guard and a hanging arm. What is fixed is the
+tip in the ground — Walk's lowest shaft end went 0.004 → 0.234 m, and both ends
+now stay at least 0.148 m up in every ground clip. Standing the shaft up in Walk
+as well needs an animated or IK'd attachment.
+
+### The ragdoll's headline defect was a material, not a joint
+
+The corpse looked shattered: eyeball meshes apparently outside the head, black
+self-intersecting seams, a shard-edged crumple. Every one of those is the same
+bug, and it is not physics. **The corpse's materials were switched to
+`TRANSPARENCY_ALPHA` at spawn.** An alpha material renders in the transparent
+pass and writes no depth, so a closed body stops occluding *itself* — you were
+looking straight through the skin at the inside of the head and the backs of the
+eyes. The bodies were exactly where they belonged the whole time, which was
+proven by dumping bone world positions: `RightHand` at
+`(0.123545, 0.984243, -0.318786)` on the live Gub and on its corpse, to six
+decimals. Corpse materials now stay opaque for the whole 2.5 s linger and switch
+to alpha plus `DEPTH_DRAW_ALWAYS` at the first frame of the 0.8 s fade.
+
+On top of that, real improvements that are not what fixed the picture: the 13
+bodies of the new `SEGMENTS` table were refitted to the mesh's outer extent
+(pelvis radius 0.329, chest 0.301, head 0.320 — the head is a third of the
+character), which required **`MAX_RADIUS` 0.30 → 0.40 out of necessity, not
+tidiness**: at 0.30 the pelvis and head were being silently clamped and the
+refit had no effect at all. A p90 fit is right for a cylindrical limb and wrong
+for three overlapping blobs, which is why the torso rows sit near the outer
+extent while the hand and foot rows sit near the median — their splayed digits
+double the p90. Total mass 39.0 kg, worst ratio 8:1.
+
+**The neck is 35°/25° and the spine stayed at 45°, against a request for 30°
+everywhere.** This is D-013's warning arriving on schedule — a cone-twist driven
+past its limit adds energy rather than clamping — and the reason is measurable: a
+corpse is snapped to the pose it died in, so any span below the bend the
+*animation* already contains starts the joint outside its own limit. Idle alone
+bends the neck 38°, Run 69°, JumpTwo 71°; JumpOne bends Spine1 49°.
+
+| configuration | `ragdoll_stability` |
+|---|---|
+| head 60/50, spine 45 (first pass) | PASS but jittery — 1.46 m/s at settle against a 1.5 limit |
+| head 45/25, spine 45 | PASS, 0.47 m/s |
+| **head 35/25, spine 45 — shipped** | **PASS, 0.55 m spread / 0.76 m/s** |
+| head 30/25, spine 45 | PASS marginally, 1.18 m/s |
+| head 25/25, spine 45 | FAIL — 160 m/s at tick 121 |
+| head 18/25, spine 45 | FAIL — 285 m/s at tick 33 |
+| head 45/25, **spine 30** | FAIL — 123 m/s at tick 55 |
+
+**And "settled spread 0.59 m for a 1.80 m body" was a misread metric, not a
+crumpled corpse.** `ragdoll_stability`'s spread is the maximum distance of a body
+from the centroid — a *radius* — so 1.0–1.5 m is geometrically impossible for
+this rig, and anything over 1.5 fails the test outright. It reads 0.55 m, and
+the corpse is prone: its thirteen body centres occupy 0.70 × 0.29 × 0.89 m,
+about 1.4 m of skin on the ground once the capsule radii and the 0.36 m of skull
+beyond the head body are counted.
+
+Last, **every corpse faced backwards**, and had done since before this rework.
+`GubRagdoll._adopt` copied `Model`'s yaw onto the holder, but the 180° turn that
+makes `body_yaw` mean "the way the Gub is looking" lives on the `Model/gub`
+*child* in `gub.tscn`. The whole chain is now composed, found by walking up from
+the skeleton rather than by name.
+
+### What this asset is worse at than the old one
+
+`tools/rig_report.py` measures the new asset the same way it measured the old one
+for D-023, and the honest answer is that **Mixamo's stock weights skin worse at
+the neck and shoulder ring than D-023's solved bind did**:
+
+| | old asset, after D-023 | new asset |
+|---|---|---|
+| worst edge growth | 4.42% of body | **9.81%** (Throw) |
+| torn-edge instances | 258 over 8 clips / 28113 edges | **1061** over 9 clips / 19033 edges |
+| left/right bind asymmetry (mean) | 0.762 | **0.219** |
+
+The table it reports, on the shipped GLB — `stretch` is a multiple of rest edge
+length, `jerk` is per frame as a fraction of body size, and the clip names carry
+the `-loop` suffix because `rig_report` reads the GLB rather than Godot's copy of
+it:
+
+```
+  binding
+    8818 verts, 10542 tris, 49 joints; 7444 have a mirror twin within 2.0% of body size (84%)
+    left/right asymmetry:  mean 0.219  p95 1.000  max 1.000   (0 = mirrored exactly)
+    influences/vertex: [0, 2879, 2846, 2208, 885]   weights under 0.02: 4085
+
+    clip           frames    dur  stretch    p99.9    torn%  jerk avg  jerk max loop seam
+    Idle-loop         250   4.15     5.30     3.28   0.284%   0.00007   0.00518    0.0015
+    Walk-loop          75   1.23     5.36     2.98   0.289%   0.00055   0.02100    0.0014
+    Run-loop           27   0.43     8.00     3.38   0.336%   0.00413   0.18424    0.0114
+    CrouchWalk-loop    68   1.12     7.53     5.01   0.720%   0.00081   0.08413    0.0040
+    Slide             107   1.77    11.88     4.08   1.235%   0.00329   0.25157         -
+    JumpOne           114   1.88     8.09     3.34   0.594%   0.00171   0.03444         -
+    JumpTwo           143   2.37     7.22     3.12   0.678%   0.00684   0.16445         -
+    Throw             231   3.83    11.88     4.00   0.856%   0.00051   0.02537         -
+    CrouchIdle-loop    61   1.00     7.26     4.92   0.583%   0.00000   0.00000    0.0000
+```
+
+The `stretch` column is the ratio D-023 already warned is a poor headline: this
+mesh also has edges a fifth of the median length, where half a millimetre reads
+as "12×". Measured against the body's own size instead, the worst edge growth per
+clip is Walk 4.00%, Idle 4.43%, CrouchIdle 6.55%, JumpOne 6.61%, CrouchWalk
+6.74%, JumpTwo 7.01%, Slide 8.25%, Run 9.33%, **Throw 9.81%**. The loop seams are
+all under 1.2% of body size, so dropping the duplicate tail key did not cost the
+cycles their joins.
+
+It is not the old failure mode — there are no detached flying triangles, and the
+Idle sheet is clean. It is the jaw/chest ring, where a cartoon head sits straight
+on the shoulders with no neck to grade the falloff, plus the hip ring in Slide:
+the outside of a hard bend, where linear-blend skinning always loses and where
+the fix is a corrective shape, not a better weight. The bind is markedly *more
+symmetric* than the old solved one, and the figure is stable across pairing
+tolerance, so that part is real. If the tearing turns out to be visible at
+gameplay distance the fix is a re-solve or a corrective — and `tools/rig_clean.py`,
+which is what earned the old numbers, is deleted.
+
+(Two measurement footnotes for anyone comparing against an older `rig_report`
+run. Its mirror-pairing tolerance is now 2% of the body diagonal rather than an
+absolute 1 mm; at 1 mm the pairing found 0–1 vertices on *any* generated asset,
+so the asymmetry row was statistics over one vertex. And the old asset's torn
+count above is the adapted tool's own re-run on `HEAD`'s GLB, which reads 258
+where D-023's table reads 257 — one edge, and worth knowing only so that nobody
+goes looking for a discrepancy that means something.)
+
+### Art limitations, kept on purpose
+
+None of these are bugs and all of them are visible if you look for them:
+
+- **`CrouchWalk`'s feet slip 53%.** At the game's 1.6 m/s crouch speed the
+  stance foot still travels 0.849 m/s. Walk is 9.4% and Run 16.3%, which are
+  fine; CrouchWalk is authored at 1.273 m/s and would need its rate nearly
+  doubled to plant, for a 0.17 m/s gain. The clip is what it is.
+- **`JumpTwo`'s ground roll is authored below the floor.** From clip 1.333 s on,
+  the kept and clamped variants are numerically identical — those hips keys are
+  *below* the first key, which the vertical rule never touches — and the skin
+  reaches 0.247 m under the plane three ticks after a dive landing, recovering to
+  ~0.10 m ten ticks in. It is a human-proportioned roll retargeted onto a body
+  whose head is a 0.8 m blob. The air scrub hands over at 1.48, which is the
+  most-sunk 0.15 s of the clip, so `ROLL_CLIP_START` is 1.62 instead — within
+  0.10 m of the floor and closing (1.73 would be within 0.03 m) — at the cost of
+  the first two frames of the tumble, which the touchdown's own impact hides.
+  What remains is invisible from the chase camera, which looks down, and visible
+  on a contact sheet.
+- **The nameplate crosses the model at dive apex.** Keeping JumpTwo's rise puts
+  the pelvis 0.618 m above the capsule at clip 0.90 s, and the plate is pinned to
+  the capsule at 1.80 m — down from 2.05, which fixed the standing case: the gap
+  above the antennae went 0.46 → 0.18 m. Anything keyed off the capsule rather
+  than the model — plate, camera height, a `BoneAttachment3D` — separates from
+  the body mid-dive. Fixing it properly means offsetting the plate by the model's
+  own head height.
+- **A sliding Gub is hard to hit.** The 0.77 m capsule is vertically correct —
+  nothing of the body is above it — but its 0.38 m radius sits over the hips of a
+  body whose head is half a metre forward of the axis.
+- **A held spear vanishes when its Gub dies.** `_adopt_spears` adopts *embedded*
+  projectiles, not the carried one, so a corpse carries the spear that killed it
+  and not the one it was holding. Pre-existing, and left.
+- **A settled corpse still creases at the neck and shoulder rings** at 2× zoom,
+  for the skinning reason above. The real fix is *more bodies* — driving `Neck`
+  and the shoulders instead of leaving them frozen at the death pose — which is a
+  change to the size of `SEGMENTS`, not to its numbers. Resetting those undriven
+  links to rest at death was tried, rendered, and reverted: no visible gain, and
+  it costs the corpse the pose it died in.
+
+### Result
+
+`bash tools/smoke_test.sh` is 10 of 10. `art/generated/gub.glb` is 1.53 MB
+against the old 1.97 MB, with 10542 triangles (down from 18k), 49 unprefixed
+bones, an AABB of 1.902 × 1.800 × 0.748 with its base at y = 0, and
+`nodes/root_scale = 1.0` — the model is authored in metres and the skeleton is
+unscaled, so bone attachments and ragdoll capsules are in the same units as the
+world.

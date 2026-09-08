@@ -11,6 +11,8 @@ extends Node3D
 ##
 ## The modes are the keys of DRIVES below. `dive` is the double-jump: it presses
 ## jump twice, eight frames apart, and around frame 80 the Gub is mid-dive.
+## `slide` sprints first and then holds crouch, because a slide has an entry
+## speed and pressing both from a standing start does nothing at all.
 
 const GUB := preload("res://scenes/player/gub.tscn")
 
@@ -24,6 +26,7 @@ const DRIVES := {
 	"jump": {"move_forward": true, "sprint": true, "jump": true},
 	"dive": {"move_forward": true, "sprint": true, "dive": true},
 	"throw": {"move_forward": true, "sprint": true, "throw_spear": true},
+	"slide": {"move_forward": true, "sprint": true, "slide": true},
 	"ragdoll": {"move_forward": true, "sprint": true, "ragdoll": true},
 }
 
@@ -68,6 +71,12 @@ func _physics_process(_delta: float) -> void:
 		_gub.input_direction = Vector2(0, -1) if _drive.get("move_forward", false) else Vector2.ZERO
 		_gub.wants_sprint = _drive.get("sprint", false)
 		_gub.wants_crouch = _drive.get("crouch", false)
+		# A slide needs a running start: `Gub._handle_slide` will not begin one
+		# below SLIDE_ENTRY_SPEED, so crouch is only pressed once the Gub has
+		# landed from its 1.2 m drop and reached full sprint. Frame 40 in, the
+		# slide starts; it lasts SLIDE_DURATION, so ticks 45-100 are the slide.
+		if _drive.get("slide", false) and _frames >= 40:
+			_gub.wants_crouch = true
 		if _drive.get("jump", false) and _frames % 48 == 0:
 			_gub.request_jump()
 		# Jump, then jump again eight frames later while still on the way up.
@@ -103,7 +112,7 @@ func _unhandled_input(event: InputEvent) -> void:
 ## Stand-in for taking a spear: drop a corpse and take the Gub out of play.
 func _kill_for_test() -> void:
 	var direction := _gub.facing()
-	GubRagdoll.spawn_from(_gub, self, direction * 2.4 + Vector3.UP * 0.6, "spine.002")
+	GubRagdoll.spawn_from(_gub, self, direction * 2.4 + Vector3.UP * 0.6, "Spine1")
 	_gub.alive = false
 	_gub.visible = false
 

@@ -88,7 +88,7 @@ func _begin(count: int, configure: Callable) -> void:
 
 func _kill(victim: int, killer: int) -> void:
 	MatchState.report_kill(victim, killer, Gub.Cause.SPEAR,
-		Vector3.ZERO, Vector3.FORWARD, "spine.002")
+		Vector3.ZERO, Vector3.FORWARD, "Spine1")
 
 
 ## Bring a dead player back without needing a Gub or a respawn timer.

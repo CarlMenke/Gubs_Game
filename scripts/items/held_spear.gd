@@ -15,16 +15,75 @@ extends Node3D
 
 const MODEL := preload("res://art/generated/spear.glb")
 
-const HAND_BONE := "hand.R"
+const HAND_BONE := "RightHand"
 
-## Where the shaft sits in the hand. The mesh's origin is at the butt of the
-## spear and it runs along its own +Y, which the hand bone happens to point
-## roughly upward, so an identity grip leaves the Gub holding the very end of a
-## vertical pole. Sliding it 0.58 back puts the fist just under halfway up the
-## shaft; the small tilt leans the tip back off the head. Tuned by eye against
-## the idle and run cycles with `tools/preview_grip.tscn`.
-const GRIP_OFFSET := Vector3(0.0, -0.58, 0.02)
-const GRIP_ROTATION := Vector3(16.0, 0.0, -8.0)
+## Where the shaft sits in the fist.
+##
+## The spear mesh's origin is at the butt and it runs 1.236 m along its own +Y,
+## so the whole grip is two things: which way that +Y points in the hand's frame
+## (`GRIP_ROTATION`), and which point of the shaft is in the palm
+## (`GRIP_OFFSET`, the butt's position in hand-local metres).
+##
+## `RightHand`'s local +Y runs up the arm and out through the fingers, +X across
+## the palm toward the fingertips (they reach x = +0.22 in this cartoon mitten)
+## and +Z is the palm normal. A shaft near local +Y is therefore a shaft along
+## the forearm, which is why the rotation below is a small tilt off identity.
+##
+## **A near-vertical carry, decided in `Idle`.** The Gub's `Idle` is a hunched
+## boxer's guard: the right fist is up beside a head that is thrust forward, and
+## the head is 0.5 m of blob 0.25 m thick. The first pass aimed the tip
+## forward-and-up (a 21 deg tilt off the forearm) and scored it against three
+## small ellipsoids standing in for the body — which under-measured the Gub
+## badly, and the shipped result ran the shaft in under the chin and out above
+## the crown. So this pass scored candidates against the **real skinned mesh**:
+## every head- and torso-weighted vertex, skinned at 27 poses spread over the
+## six clips the spear is carried in, with the shaft's distance to the nearest
+## one as the constraint.
+## The target — chosen because `Idle` is the pose read across a clearing, and a
+## Gub in a guard stance with a spear held upright reads as armed — is a shaft
+## 75-85 deg above horizontal, leaning slightly forward and outward to the
+## Gub's own right, away from the head. What the numbers below deliver:
+##
+##   clip        shaft elevation      lowest end   nearest skin
+##   Idle        +81 to +86 deg         0.33 m        0.11 m
+##   Walk        -42 to -14 deg         0.23 m        0.15 m
+##   Run         -59 to -43 deg         0.15 m        0.26 m
+##   CrouchWalk  +70 to +75 deg         0.59 m        0.19 m
+##   CrouchIdle  +72 deg                0.59 m        0.19 m
+##   Throw       -10 to +59 deg         0.43 m        0.06 m
+##
+## The mean `Idle` carry is 86 deg up and 53 deg round from forward toward the
+## Gub's right: a near-vertical shaft leaning as much outward as forward.
+## Nothing touches the skin anywhere; the tightest is the throw follow-through
+## at 6 cm.
+##
+## `Walk` and `Run` still point the tip *down*, and that is not fixable with a
+## rigid attachment: the hand's world orientation differs by more than 100 deg
+## between a raised guard and a hanging arm, so a grip that stands the shaft up
+## in one lays it over in the other. What was fixable is the tip ploughing the
+## ground — it used to reach +0.01 m in `Walk` — and both ends now stay at least
+## 0.15 m up in every ground clip.
+##
+## **`GRIP_OFFSET` is derived, not free.** It is
+##
+##     (-0.03, 0.06, -0.04) - 0.55 * 1.236 * shaft_direction
+##
+## where the first term is the point of the palm the shaft passes through and
+## the second puts the fist 55% of the way up the shaft (which is what lifts the
+## butt clear of the ground when the arm hangs in `Walk`). That palm point is
+## deliberately *off* the wrist bone's axis, because a hand holds a stick in its
+## palm rather than through its own bones: the `RightHand`-weighted skin spans
+## x -0.083..0.085, z -0.065..0.065, y -0.025..0.103 in hand-local rest space,
+## so 5 cm off the axis and 6 cm up toward the knuckles is inside the fist with
+## room to spare — and moving the shaft those 5 cm is what takes it from 6 cm
+## off the face to 11 cm. Change `GRIP_ROTATION` and recompute this, or the
+## shaft stops passing through the hand.
+##
+## Swept with `tools/preview_grip.tscn` (which takes both vectors on the command
+## line) at 2400x700 in all five clips, plus the `Throw` window 1.40-1.75.
+const GRIP_OFFSET := Vector3(-0.206, -0.582, 0.097)
+const GRIP_ROTATION := Vector3(-12.0, 0.0, -15.0)
+
 
 var _attachment: BoneAttachment3D
 var _model: Node3D

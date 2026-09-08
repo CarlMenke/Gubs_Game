@@ -30,8 +30,19 @@ func _ready() -> void:
 	(_gub.get_node("CameraRig") as Node3D).queue_free()
 	(_gub.get_node("Nameplate") as Node3D).queue_free()
 
+	# Close enough to judge, aimed down the middle of the corpse's path rather
+	# than at where it starts: the impulse below sends it a couple of metres
+	# along -Z, and from 10 m away (where this camera first sat) a 1.8 m Gub is
+	# eighty pixels tall and "the mesh is following the capsules" cannot be
+	# answered from the picture. At 6 m it was still only 200 px and the fix
+	# pass could not tell a crumpled corpse from a slumped one; at 3.5 m a
+	# settled corpse is about half the frame. The eye is also low — 1.2 m, near
+	# the height of a standing Gub's own eyes — because the thing being judged
+	# is a body on the ground, and looking down on it from 2 m flattens exactly
+	# the sprawl that says "body" rather than "ball". Still a *fixed* camera on
+	# purpose: a chase camera hides the drift a broken ragdoll shows.
 	var cam := Camera3D.new()
-	cam.look_at_from_position(Vector3(6.5, 2.6, 6.5), Vector3(-0.6, 0.5, -0.6), Vector3.UP)
+	cam.look_at_from_position(Vector3(2.7, 1.2, 1.1), Vector3(0.0, 0.45, -1.3), Vector3.UP)
 	cam.fov = 50.0
 	add_child(cam)
 	cam.make_current()
@@ -41,9 +52,12 @@ func _physics_process(_delta: float) -> void:
 	if _frames == kill_frame and not _killed:
 		_killed = true
 		GubRagdoll.spawn_from(_gub, self, Vector3(0, 0.25, -1).normalized() * _impulse,
-			"spine.002")
-		_gub.visible = false
+			"Spine1")
+		# Freed, not just hidden: `--debug-collisions` keeps drawing a hidden
+		# body's shapes, and a phantom 1.55 m standing capsule left at the
+		# origin is the one thing that makes the ragdoll capsules hard to read.
 		_gub.alive = false
+		_gub.queue_free()
 
 func _ground() -> void:
 	var body := StaticBody3D.new()

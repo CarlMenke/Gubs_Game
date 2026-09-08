@@ -285,10 +285,14 @@ func _physics_process(_delta: float) -> void:
 	#
 	# Note what "acted" means for a spear since D-025: the click, not the throw.
 	# `GubCombat.try_throw_spear` only starts the windup, and the spear leaves
-	# the hand THROW_RELEASE_TIME (0.57 s, 34 ticks) later — so a mode that waits
-	# for a spear has to allow frame 20 + 34 before the projectile even exists,
-	# and its whole flight after that. The warmup counts in `tools/smoke_test.sh`
-	# are sized for that.
+	# the hand THROW_RELEASE_TIME later — so a mode that waits for a spear has
+	# to allow the windup before the projectile even exists, and its whole
+	# flight after that. With the new `Throw` clip that is 0.71 s, which at 60
+	# ticks a second is 42.5 ticks: frame 20 + 42.5 = tick 63 before the spear
+	# is in the air, then 14 m at 42 m/s (0.33 s, 20 ticks) to the dummy, so the
+	# kill lands around tick 83. The warmup counts in `tools/smoke_test.sh` are
+	# sized for that — 110 for the kill, and the lure's 132 is untouched because
+	# the lure leaves on the click.
 	if _frames < 20 or _acted:
 		return
 	_acted = true

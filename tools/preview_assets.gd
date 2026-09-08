@@ -1,6 +1,7 @@
 extends Node3D
-## Lines the decimated meshes up under a neutral light so the results of
-## `tools/decimate_assets.py` can be eyeballed. Development tool, not shipped.
+## Lines the generated meshes up under a neutral light so the art pipeline's
+## results can be eyeballed: the three props out of `tools/decimate_assets.py`
+## and the Gub out of `tools/build_gub.py`. Development tool, not shipped.
 
 const MODELS := [
 	"res://art/generated/gub.glb",

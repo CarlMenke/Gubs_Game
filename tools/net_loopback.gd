@@ -515,7 +515,7 @@ func _stage_kill() -> bool:
 	# A blow with real speed in it: the corpse's flight is scaled by it, so a
 	# unit vector would leave the ragdoll path exercised but never pushed.
 	MatchState.report_kill(_client_id, 1, Gub.Cause.SPEAR, point,
-		Vector3.FORWARD * 18.0, "spine.002")
+		Vector3.FORWARD * 18.0, "Spine1")
 	_check("the host scored the kill", MatchState.kills(1), 1)
 	_check("the host recorded the death", MatchState.deaths(_client_id), 1)
 	_check("the host's own player_killed fired", _kills.size(), 1)

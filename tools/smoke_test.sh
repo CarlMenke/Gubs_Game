@@ -124,10 +124,13 @@ check "ragdoll survives landing" "ragdoll_stability: PASS" \
 # checkout of this project) and is whatever anyone last typed into a name box.
 #
 # 110 ticks, not the 70 it used to be. The throw is clicked on tick 20 and the
-# spear does not leave the hand until 0.57 s after that (D-025), then flies 14 m
-# at 42 m/s, so the kill lands around tick 75 and the old count stopped the run
-# before it happened. Worth saying out loud because the failure would have read
-# as a broken throw and not as a warmup that was now too short.
+# spear does not leave the hand until THROW_RELEASE_TIME after that (D-025),
+# which on the new `Throw` clip is 0.71 s = 42.5 ticks, so the spear appears
+# around tick 63; it then flies 14 m at 42 m/s (0.33 s, 20 ticks) and the kill
+# lands around tick 83. The old count of 70 stopped the run before that even at
+# the old 0.57 s. Worth saying out loud because the failure would have read as a
+# broken throw and not as a warmup that was now too short. The lure's 132 below
+# needs no allowance: a lure leaves on the click.
 check "spear kills" "killed Dummy 1" \
     "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
     res://tools/combat_range.tscn "$GODOT_LOG_DIR/hit.png" 110 hit

@@ -195,8 +195,8 @@ func _resolve(hit: Dictionary) -> void:
 func _nearest_bone(victim: Gub, point: Vector3) -> String:
 	var skeleton := victim.find_child("Skeleton3D", true, false) as Skeleton3D
 	if skeleton == null:
-		return "spine.002"
-	var best := "spine.002"
+		return "Spine1"
+	var best := "Spine1"
 	var best_distance := INF
 	for segment: Dictionary in RagdollBuilder.SEGMENTS:
 		var bone: int = skeleton.find_bone(segment["bone"])

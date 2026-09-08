@@ -21,9 +21,10 @@ extends Node
 ## copy is the one that counts.
 ##
 ## The spear is the one ability that does *not* happen on the click. A click
-## starts the windup animation; the spear leaves the hand THROW_RELEASE_TIME
-## later, and the aim is read at that moment rather than at the click, so a
-## target that moves while you wind up has to be led. See D-025.
+## starts the windup animation; the spear leaves the hand
+## `GubAnimator.THROW_RELEASE_TIME` later, and the aim is read at that moment
+## rather than at the click, so a target that moves while you wind up has to be
+## led. See D-025.
 
 signal cooldowns_changed()
 
@@ -31,20 +32,26 @@ const SPEAR := preload("res://scripts/items/spear_projectile.gd")
 const MUSHROOM := preload("res://scenes/items/shield_mushroom.tscn")
 const LURE := preload("res://scenes/items/lure.tscn")
 
-## How long after the click the spear actually leaves the hand.
-##
-## Measured off the clip rather than guessed. `SpearThrow` is 1.53 s, and
-## tracking the `hand.R` bone against the spine through it says: the arm draws
-## back until 0.39 s, whips up over the shoulder to its highest at 0.54 s,
-## crosses in front of the body at 0.55 s and reaches furthest forward at
-## 0.60 s. A thrown object separates at peak forward hand speed, which is the
-## 0.54-0.60 s stretch, so the spear goes at 0.57 s — by 0.60 the hand is
-## already decelerating and the throw would read as a push.
-##
-## The throw OneShot's 0.10 s fade-in needs no allowance on top: the clip barely
-## moves for its first 0.21 s, so the blend is long finished before anything the
-## eye is following depends on it.
-const THROW_RELEASE_TIME := 0.57
+# How long after the click the spear actually leaves the hand is
+# `GubAnimator.THROW_RELEASE_TIME`, and not a constant here, because it is a
+# fact about the animation and this file only has to agree with it.
+#
+# It is measured off the clip rather than guessed, and then *derived*: `Throw`
+# is 3.83 s, the animator plays the 0.50-2.10 s window of it at 1.6x, and
+# tracking the `RightHand` bone through the clip gives a peak speed of 9.9 m/s
+# at 1.625 s, with the hand crossing in front of the body at 1.60 and reaching
+# furthest forward at 1.68. A thrown object separates at peak forward hand
+# speed, so the release is 1.633 s of clip — 0.71 s of real time after the
+# click at that rate. By 1.68 the hand is decelerating and letting go there
+# would read as a push rather than a throw.
+#
+# Deriving it from the window and the rate is the point: whoever moves either
+# of those without opening this file cannot leave the spear and the hand
+# disagreeing, which is the bug D-025 exists because of.
+#
+# The throw OneShot's 0.08 s fade-in needs no allowance on top: the clip's arm
+# does not start moving until 0.55 s, so the blend is long finished before
+# anything the eye is following depends on it.
 
 ## Where the throw leaves the hand, relative to the Gub. The spear is aimed at
 ## whatever the crosshair is over, not simply pushed along the camera's forward
@@ -155,7 +162,7 @@ func has_spear() -> bool:
 ## alone, so the ring sweeps from the click instead of sitting full through the
 ## windup and then jumping down when the spear finally goes.
 func spear_cycle() -> float:
-	return THROW_RELEASE_TIME + _config.spear_recharge
+	return GubAnimator.THROW_RELEASE_TIME + _config.spear_recharge
 
 
 ## True between the click and the release. The held spear is still in the hand
@@ -242,15 +249,15 @@ func _stow_aim_marker() -> void:
 # ------------------------------------------------------------------- spear ---
 
 ## A click starts the throw; it does not make it. The arm goes back now and the
-## spear leaves the hand THROW_RELEASE_TIME later, at which point the aim is
-## sampled and the host is asked. Nothing about *where* the spear goes is
-## decided here, which is the whole change: a target that walks during your
-## windup has to be led.
+## spear leaves the hand `GubAnimator.THROW_RELEASE_TIME` later, at which point
+## the aim is sampled and the host is asked. Nothing about *where* the spear
+## goes is decided here, which is the whole change: a target that walks during
+## your windup has to be led.
 func try_throw_spear() -> void:
 	if spear_cooldown() > 0.0 or is_winding_up():
 		return
 
-	_windup_release_at = _now() + THROW_RELEASE_TIME
+	_windup_release_at = _now() + GubAnimator.THROW_RELEASE_TIME
 	# The input has been spent whether or not the spear has left yet, so the ring
 	# starts sweeping on the click. A crosshair that sits ready through half a
 	# second of windup only invites the second click that will be refused.
@@ -267,8 +274,8 @@ func try_throw_spear() -> void:
 		_request_throw_windup.rpc_id(1)
 
 
-## The release. Runs on the throwing client only, THROW_RELEASE_TIME after the
-## click, and is the first moment anything about the aim is read.
+## The release. Runs on the throwing client only, one THROW_RELEASE_TIME after
+## the click, and is the first moment anything about the aim is read.
 func _tick_windup() -> void:
 	if _windup_release_at <= 0.0:
 		return

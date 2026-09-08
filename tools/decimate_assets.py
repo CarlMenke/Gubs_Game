@@ -1,10 +1,18 @@
-"""Turn the raw 500k-triangle source art into game-ready meshes.
+"""Turn the raw 500k-triangle source props into game-ready meshes.
 
-Every `.glb` the project was handed (Gub, Spear, Lure, Mushroom) is a
-photogrammetry-style mesh of roughly half a million triangles. Eight networked
-Gubs, their spears, and a scattering of deployed mushrooms would be well over
-five million triangles per frame before shadow passes. This script reduces each
+Every prop `.glb` the project was handed (Spear, Lure, Mushroom) is a
+photogrammetry-style mesh of roughly half a million triangles. One spear per
+Gub, every projectile in flight, and a scattering of deployed mushrooms would be
+millions of triangles per frame before shadow passes. This script reduces each
 one to a sane budget while keeping it visually identical at gameplay distance.
+
+Static, unskinned meshes only. The Gub came through here too until D-029: a
+skinned photogrammetry mesh whose hand-made rig had to be repaired on the way
+past, which is what the skin binding, the animation-curve cleanup, the clip
+facing alignment and the root-motion stripping in this script existed for. It is
+now built from Mixamo FBX by `tools/build_gub.py`, which does all of that at the
+source instead, so all of it is gone from here and each remaining target is one
+unskinned mesh with one material and no animation.
 
 Pipeline, per mesh:
 
@@ -12,9 +20,9 @@ Pipeline, per mesh:
      along UV seams; left alone those seams read as hard boundaries the
      decimator refuses to collapse, which wrecks quality at high reduction.
   2. Quadric-error decimation on the welded topology (`fast_simplification`).
-  3. Transfer UVs and skin weights back from the source by nearest-vertex
-     lookup, disambiguated per-triangle so a triangle never straddles two UV
-     islands (which would smear the texture across the seam).
+  3. Transfer UVs back from the source by nearest-vertex lookup, disambiguated
+     per-triangle so a triangle never straddles two UV islands (which would
+     smear the texture across the seam).
   4. Recompute smooth normals from the new geometry, accumulated by position so
      shading stays continuous across the seams from step 1.
   5. Repack into a fresh single-buffer GLB in `art/generated/`.
@@ -39,21 +47,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import fast_simplification  # noqa: E402
 from gltf_io import ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER, Gltf, GltfBuilder  # noqa: E402
-import rig_clean  # noqa: E402
-from rig_math import Rig, quat_from_y_rotation, quat_multiply  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(REPO, "art", "generated")
 
 # name -> (source path, triangle budget, max texture edge)
 #
-# Budgets are set by how many of each thing can be on screen at once. The Gub
-# gets the largest share: up to eight of them, skinned, each also drawn into the
-# shadow atlas. The spear is tiny on screen but there is one per Gub plus every
-# projectile in flight, so it gets the tightest budget. Every source texture is
-# 2048x2048, which is far more than a thrown stick needs.
+# Budgets are set by how many of each thing can be on screen at once. The spear
+# is tiny on screen but there is one per Gub plus every projectile in flight, so
+# it gets the tightest budget; the mushroom is a placed object you walk right up
+# to and gets the loosest. Every source texture is 2048x2048, which is far more
+# than a thrown stick needs.
 TARGETS = {
-    "gub":      ("assets/source/Gub.glb", 18000, 1024),
     "spear":    ("assets/source/Spear.glb", 3000, 512),
     "lure":     ("assets/source/Lure.glb", 6000, 512),
     "mushroom": ("assets/source/Mushroom/base_basic_pbr.glb", 10000, 1024),
@@ -180,164 +185,6 @@ def dedup_corners(corner_arrays):
     return inverse.astype(np.uint32), first
 
 
-def find_root_joint(doc):
-    """Index of the skeleton's root joint node, or None if the mesh is not skinned."""
-    skins = doc.get("skins", [])
-    if not skins:
-        return None
-    if "skeleton" in skins[0]:
-        return skins[0]["skeleton"]
-    joints = set(skins[0]["joints"])
-    has_parent = set()
-    for index in joints:
-        for child in doc["nodes"][index].get("children", []):
-            has_parent.add(child)
-    roots = sorted(joints - has_parent)
-    return roots[0] if roots else None
-
-
-def align_clip_facing(doc, source, root_index, tolerance_degrees=1.5):
-    """Rotate each clip so every one starts the Gub pointing the same way.
-
-    The clips were authored at different resting yaws — Idle sits 66 degrees off
-    Crouch, CrouchWalk 34 degrees off — which is invisible when you preview one
-    clip at a time and very visible the moment an AnimationTree blends between
-    two of them: the body swings sideways on every state change.
-
-    Facing is measured by forward kinematics through the hips (see rig_math),
-    not by reading Euler angles off the root quaternion, because the root bone
-    carries the rig's own rest orientation and its "yaw" is not the body's.
-
-    The correction is a yaw applied to the root joint's rotation keys, taken
-    from frame 0 (every clip is authored starting from a neutral stance). Motion
-    *within* the clip is untouched, so a throw still winds the body up.
-    """
-    rig = Rig(doc)
-    reference = rig.facing_radians({}, "thigh.L", "thigh.R")
-    if reference is None:
-        log("  facing: no hip joints found, skipping alignment")
-        return
-
-    for anim in doc.get("animations", []):
-        pose = rig.sample_pose(source, anim, 0.0)
-        facing = rig.facing_radians(pose, "thigh.L", "thigh.R")
-        if facing is None:
-            continue
-        offset = (facing - reference + np.pi) % (2.0 * np.pi) - np.pi
-        if abs(np.degrees(offset)) < tolerance_degrees:
-            continue
-
-        correction = quat_from_y_rotation(-offset)
-        applied = False
-        for channel in anim["channels"]:
-            target = channel["target"]
-            if target["node"] != root_index or target["path"] != "rotation":
-                continue
-            sampler = anim["samplers"][channel["sampler"]]
-            values = np.array(sampler["_output"], dtype=np.float64)
-            for i in range(len(values)):
-                values[i] = quat_multiply(correction, values[i])
-            sampler["_output"] = values
-            applied = True
-        if applied:
-            log("  facing    %-12s rotated %+6.1f deg to match the rest pose"
-                % (anim.get("name", "?"), -np.degrees(offset)))
-        else:
-            log("  facing    %-12s is %+.1f deg off but has no root rotation track"
-                % (anim.get("name", "?"), np.degrees(offset)))
-
-
-def strip_root_motion(doc, source, root_index, bob_threshold=0.5):
-    """Lock the root joint in place so the clips animate on the spot.
-
-    Every locomotion clip carries its travel baked into the root joint: SlowRun
-    walks 4.5 units forward over 0.73s, Jump arcs 12.6 units and rises 3.0. If
-    that is left in, the mesh slides away from the CharacterBody3D that is
-    supposed to be carrying it.
-
-    Horizontal travel is always removed. Vertical travel is kept when it is
-    small, because that is the weight-shift bob that gives a run cycle its life,
-    and removed when it is large, because that is a real leap the physics body
-    is already doing.
-
-    Returns a list of (clip, forward units/sec) — the speed each clip was
-    authored to move at, which is what the movement code should be tuned to if
-    feet are not to skate.
-    """
-    speeds = []
-    for anim in doc.get("animations", []):
-        for channel in anim["channels"]:
-            target = channel["target"]
-            if target["node"] != root_index or target["path"] != "translation":
-                continue
-            sampler = anim["samplers"][channel["sampler"]]
-            times = np.asarray(sampler["_input"], dtype=np.float64)
-            values = np.array(sampler["_output"], dtype=np.float64)
-            if values.ndim != 2 or len(values) == 0:
-                continue
-
-            duration = float(times[-1] - times[0]) if len(times) > 1 else 0.0
-            travel = float(np.linalg.norm(values[-1, [0, 2]] - values[0, [0, 2]]))
-            if duration > 0.0:
-                speeds.append((anim.get("name", "?"), travel / duration))
-
-            values[:, 0] = values[0, 0]
-            values[:, 2] = values[0, 2]
-            vertical = float(values[:, 1].max() - values[:, 1].min())
-            if vertical > bob_threshold:
-                values[:, 1] = values[0, 1]
-                log("  root motion %-12s locked XZ (%.2f u travelled) and Y (%.2f u rise)"
-                    % (anim.get("name", "?"), travel, vertical))
-            else:
-                log("  root motion %-12s locked XZ (%.2f u travelled), kept %.2f u of bob"
-                    % (anim.get("name", "?"), travel, vertical))
-            sampler["_output"] = values
-    return speeds
-
-
-def clean_animations(doc, source_doc):
-    """Collapse the exporter's duplicate animation clips down to one per name.
-
-    `Gub.glb` ships each clip twice: `Idle` with two keyframes (just a held
-    pose) and `Idle.001` with the 326 keyframes that are the actual animation.
-    That is what a Blender NLA export looks like when both the strip and its
-    action get written out. Shipping both means gameplay code has to know to ask
-    for `Idle_001`, which is the sort of detail that quietly rots.
-
-    So: group by base name, keep whichever variant carries the most keyframes,
-    and give it the clean name. `Crouch` only exists in the two-keyframe form —
-    it genuinely is a static pose — and is kept as-is.
-    """
-    def base_name(name):
-        head = name.rsplit(".", 1)
-        if len(head) == 2 and head[1].isdigit():
-            return head[0]
-        return name
-
-    def keyframes(anim):
-        # Sampler indices still address the *source* accessor table at this
-        # point; the builder renumbers them afterwards.
-        return sum(source_doc["accessors"][s["input"]]["count"]
-                   for s in anim["samplers"])
-
-    groups = {}
-    for anim in doc.get("animations", []):
-        groups.setdefault(base_name(anim.get("name", "")), []).append(anim)
-
-    kept = []
-    for name in sorted(groups):
-        variants = groups[name]
-        best = max(variants, key=keyframes)
-        if len(variants) > 1:
-            dropped = sorted(v.get("name") for v in variants if v is not best)
-            log("  animation %-12s kept %-14s (%d keys), dropped %s"
-                % (name, best.get("name"), keyframes(best), ", ".join(dropped)))
-        best["name"] = name
-        kept.append(best)
-    doc["animations"] = kept
-    return kept
-
-
 def resize_texture(data, max_edge):
     """Downscale an embedded texture to `max_edge`, returning PNG bytes."""
     img = Image.open(io.BytesIO(data))
@@ -367,14 +214,24 @@ def process(name, src_path, target_tris, max_texture):
     pos = np.ascontiguousarray(g.read_accessor(attrs["POSITION"]), dtype=np.float32)
     uv = np.ascontiguousarray(g.read_accessor(attrs["TEXCOORD_0"]), dtype=np.float32)
     faces = np.ascontiguousarray(g.read_accessor(prim["indices"]).reshape(-1, 3), dtype=np.int64)
-    skinned = "JOINTS_0" in attrs
+
+    # Everything this script knows how to do assumes a static prop. Skin
+    # weights and animation curves survive neither the weld nor the decimation
+    # without the machinery that went to `tools/build_gub.py` with the Gub, so
+    # say so rather than quietly writing an asset with its rig thrown away.
+    if "JOINTS_0" in attrs or g.doc.get("skins") or g.doc.get("animations"):
+        raise SystemExit("%s: skinned or animated source; this script only "
+                         "handles static props (the Gub is built by "
+                         "tools/build_gub.py)" % name)
 
     lo, hi = pos.min(axis=0), pos.max(axis=0)
-    diagonal = float(np.linalg.norm(hi - lo))
-    log("  source: %d verts, %d tris, bbox %s .. %s%s"
+    # Rounded as float64: rounding a float32 to two places and printing it
+    # still spells 0.13 as 0.12999999523162842, which buries the number the
+    # line exists to show.
+    log("  source: %d verts, %d tris, bbox %s .. %s"
         % (len(pos), len(faces),
-           np.round(lo, 2).tolist(), np.round(hi, 2).tolist(),
-           ", skinned" if skinned else ""))
+           np.round(lo.astype(np.float64), 2).tolist(),
+           np.round(hi.astype(np.float64), 2).tolist()))
 
     # 1. weld -------------------------------------------------------------
     wpos, v2w = weld(pos)
@@ -405,9 +262,9 @@ def process(name, src_path, target_tris, max_texture):
     corner_pos = new_pos[new_faces].reshape(-1, 3)
     corner_uv = uv[corner_src].reshape(-1, 2)
 
-    # Only the UVs ride along. The skin is solved from scratch on the
-    # finished geometry below, because a nearest-vertex transfer of a
-    # smooth weight field arrives rough at the other end.
+    # Only the UVs ride along; normals are recomputed from the new geometry
+    # below rather than transferred, so a corner is (position, UV) and nothing
+    # else has to agree for two of them to merge.
     indices, pick = dedup_corners([corner_pos, corner_uv])
     out_pos = corner_pos[pick]
     out_uv = corner_uv[pick]
@@ -423,14 +280,6 @@ def process(name, src_path, target_tris, max_texture):
     log("  rebuilt: %d verts, %d tris after seam-aware dedup"
         % (len(out_pos), len(out_faces)))
 
-    if skinned:
-        skin = g.doc["skins"][0]
-        out_joints, out_weights = rig_clean.bind_mesh(
-            g.doc, skin["joints"],
-            np.asarray(g.read_accessor(skin["inverseBindMatrices"]),
-                       dtype=np.float64).reshape(-1, 4, 4).transpose(0, 2, 1),
-            out_pos.astype(np.float64), out_faces)
-
     # 4. normals ----------------------------------------------------------
     out_normal = smooth_normals(out_pos, out_faces)
 
@@ -442,9 +291,6 @@ def process(name, src_path, target_tris, max_texture):
         "NORMAL": b.add_accessor(out_normal, target=ARRAY_BUFFER),
         "TEXCOORD_0": b.add_accessor(out_uv, target=ARRAY_BUFFER),
     }
-    if skinned:
-        new_attrs["JOINTS_0"] = b.add_accessor(out_joints, target=ARRAY_BUFFER)
-        new_attrs["WEIGHTS_0"] = b.add_accessor(out_weights, target=ARRAY_BUFFER)
 
     idx_dtype = np.uint16 if len(out_pos) < 65536 else np.uint32
     new_prim = dict(prim)
@@ -453,25 +299,8 @@ def process(name, src_path, target_tris, max_texture):
                                          target=ELEMENT_ARRAY_BUFFER)
     b.doc["meshes"][0]["primitives"] = [new_prim]
 
-    # Everything that is not the mesh (skin bind matrices, animation tracks,
-    # embedded textures) is copied across verbatim into the new buffer.
-    for skin in b.doc.get("skins", []):
-        if "inverseBindMatrices" in skin:
-            skin["inverseBindMatrices"] = b.add_accessor(
-                np.ascontiguousarray(g.read_accessor(skin["inverseBindMatrices"]),
-                                     dtype=np.float32))
-    clip_speeds = []
-    if b.doc.get("animations"):
-        clean_animations(b.doc, g.doc)
-        root_joint = find_root_joint(b.doc)
-        if root_joint is not None:
-            # Curves move into plain arrays here and stay there: the three
-            # passes below all rewrite them, and each one reading the
-            # buffer afresh would undo the last.
-            rig_clean.clean_clips(b.doc, g, root_joint)
-            align_clip_facing(b.doc, g, root_joint)
-            clip_speeds = strip_root_motion(b.doc, g, root_joint)
-        rig_clean.write_animations(b, b.doc)
+    # The only thing in the file that is not the mesh is the embedded texture,
+    # which is copied across (downscaled) into the new buffer.
     for image in b.doc.get("images", []):
         if "bufferView" not in image:
             continue
@@ -491,10 +320,6 @@ def process(name, src_path, target_tris, max_texture):
     src_size = os.path.getsize(src_full)
     log("  wrote art/generated/%s.glb  %.1f MB (from %.1f MB)  in %.1fs"
         % (name, size / 1e6, src_size / 1e6, time.time() - started))
-    if clip_speeds:
-        log("  authored ground speeds (source units/s, and metres/s at 0.35 import scale):")
-        for clip, speed in sorted(clip_speeds, key=lambda item: item[1]):
-            log("    %-12s %6.2f u/s  ->  %5.2f m/s" % (clip, speed, speed * 0.35))
 
 
 def main(argv):

@@ -31,7 +31,7 @@ const FADE := 0.8
 
 ## How much of the spear's speed the corpse leaves with.
 ##
-## A spear flies at 42 m/s and a Gub's thirteen bodies weigh about 38 kg between
+## A spear flies at 42 m/s and a Gub's thirteen bodies weigh about 39 kg between
 ## them, so the physically honest answer is "almost none of it" — the Gub would
 ## twitch and drop where it stood. That is the wrong answer twice over. A spear
 ## that lands is an instant kill, so the corpse's flight is the *entire*
@@ -57,6 +57,8 @@ const UPWARD_BIAS := 0.30
 var _skeleton: Skeleton3D
 var _simulator: PhysicalBoneSimulator3D
 var _meshes: Array[MeshInstance3D] = []
+var _materials: Array[BaseMaterial3D] = []
+var _fading: bool = false
 var _age: float = 0.0
 
 
@@ -84,12 +86,29 @@ func _ready() -> void:
 
 func _adopt(source: Gub) -> void:
 	var model := MODEL.instantiate() as Node3D
-	# The visual model carries a 180 degree turn (the mesh is authored facing
-	# +Z); copying the live Gub's Model node keeps the corpse facing the same way
-	# the Gub was.
 	var source_model := source.get_node("Model") as Node3D
+	var source_skeleton := source_model.find_child("Skeleton3D", true, false) as Skeleton3D
+
+	# The corpse's model subtree has to sit exactly where the live Gub's does,
+	# and "exactly" is the whole point: the mesh is authored facing +Z and the
+	# 180 degree turn that makes it face the way the body walks lives on the
+	# **glb instance** in `gub.tscn`, on `Model/gub` — not on `Model`, which is
+	# an untransformed grouping node. Copying only `Model`'s transform (which is
+	# identity) spawned every corpse facing the opposite way to the Gub that
+	# died. So take the whole chain: the model root's transform relative to the
+	# Gub, composed, whatever it happens to be made of. Found by walking up from
+	# the skeleton rather than by node name, because that chain is inside an
+	# imported scene that a re-import may rename.
 	var holder := Node3D.new()
 	holder.transform = source_model.transform
+	if source_skeleton != null:
+		var root := source_skeleton as Node
+		while root != null and root.get_parent() != source_model:
+			root = root.get_parent()
+		var root_3d := root as Node3D
+		if root_3d != null:
+			holder.transform = source.global_transform.affine_inverse() \
+				* root_3d.global_transform
 	add_child(holder)
 	holder.add_child(model)
 
@@ -99,7 +118,6 @@ func _adopt(source: Gub) -> void:
 		return
 
 	# The corpse must start in the pose the Gub died in, mid-stride and all.
-	var source_skeleton := source_model.find_child("Skeleton3D", true, false) as Skeleton3D
 	if source_skeleton != null:
 		for bone in mini(_skeleton.get_bone_count(), source_skeleton.get_bone_count()):
 			_skeleton.set_bone_pose_position(bone, source_skeleton.get_bone_pose_position(bone))
@@ -113,14 +131,25 @@ func _adopt(source: Gub) -> void:
 		player.queue_free()
 
 	for node in _find_meshes(model):
-		# Corpses need their own material to fade out without dissolving every
-		# living Gub sharing the imported one.
+		# Corpses need their own copy of the material so the fade does not
+		# dissolve every living Gub sharing the imported one. The copies are made
+		# now and kept, but they stay **opaque** until the fade actually starts
+		# (see `_process`).
+		#
+		# Switching them to TRANSPARENCY_ALPHA at spawn — which is what the first
+		# pass did — is what made every corpse look shattered. An alpha material
+		# renders in the transparent pass and writes no depth, so a closed body
+		# stops occluding itself: you see straight through the skin into the
+		# inside of the head, the far side of the belly, and the eyeballs. The
+		# "eyeball meshes end up outside the head surface" and "black
+		# self-intersecting seams" in the QA report are that, not the physics —
+		# the corpse's bones sit exactly where the live Gub's were.
 		for surface in node.mesh.get_surface_count():
 			var material := node.mesh.surface_get_material(surface)
 			if material != null:
 				var copy := material.duplicate() as BaseMaterial3D
-				copy.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 				node.set_surface_override_material(surface, copy)
+				_materials.append(copy)
 		_meshes.append(node)
 
 
@@ -133,8 +162,8 @@ func _collapse(blow: Vector3, hit_bone: String) -> void:
 
 	# `push` is a velocity, and every body is given an impulse of mass x push,
 	# which is the definition of a velocity change. Scaling by each body's own
-	# mass is the point: without it the 0.8 kg foot would leave at eleven times
-	# the speed of the 9 kg torso and the corpse would come apart at the seams.
+	# mass is the point: without it the 1.1 kg foot would leave at eight times
+	# the speed of the 9 kg pelvis and the corpse would come apart at the seams.
 	var push := blow * IMPACT_TRANSFER
 	if push.length() < MIN_SPEED:
 		push = push.normalized() * MIN_SPEED if push.length() > 0.01 else Vector3.ZERO
@@ -167,7 +196,7 @@ func _adopt_spears(source: Gub) -> void:
 		if body == null:
 			# No rigid body for that bone — a toe, or a rig without it. The
 			# torso is always present and is a better home than the floor.
-			body = _find_bone_body("spine.002")
+			body = _find_bone_body("Spine1")
 		if body == null:
 			spear.queue_free()
 			continue
@@ -197,6 +226,16 @@ func _process(delta: float) -> void:
 	if alpha <= 0.0:
 		queue_free()
 		return
+	if not _fading:
+		# Only now do the materials go transparent, and they are told to keep
+		# writing depth when they do. Both matter: transparency costs the corpse
+		# its self-occlusion (see `_adopt`), and DEPTH_DRAW_ALWAYS buys most of
+		# it back — a body that is 40% faded still reads as one surface rather
+		# than an x-ray of itself.
+		_fading = true
+		for material in _materials:
+			material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			material.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_ALWAYS
 	for mesh in _meshes:
 		mesh.transparency = 1.0 - alpha
 

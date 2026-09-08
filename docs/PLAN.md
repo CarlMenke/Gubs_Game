@@ -43,11 +43,13 @@ pieces fit together is `docs/ARCHITECTURE.md`.
 - [x] 2.1  Gub scene — CharacterBody3D, capsule, skinned mesh, skeleton
 - [x] 2.2  Third-person camera rig — spring arm, collision, shoulder offset, aim zoom
 - [x] 2.3  Movement — walk / run / sprint, jump, crouch, slide, air control, coyote time
-- [x] 2.4  AnimationTree — smooth blended state machine across all 8 source clips,
-           upper-body throw layer so throwing works while moving
+- [x] 2.4  AnimationTree — a blend tree built in code over the nine clips of
+           `art/generated/gub.glb`: speed-driven ground cycles, arc-scrubbed air
+           poses, one-shots for slide / land / roll / throw, and an upper-body
+           throw layer so throwing works while moving (rebuilt in **D-029**)
 - [x] 2.5  Nameplate — billboarded Label3D, team tint, distance fade, occlusion
 - [x] 2.6  Network sync — transform + animation state, interpolation, ownership
-- [x] 2.7  Ragdoll — physical-bone skeleton built at runtime, death impulse, corpse cleanup
+- [x] 2.7  Ragdoll — 13 physical bones built at runtime, death impulse, corpse cleanup
 
 ## Phase 3 — Combat & abilities
 

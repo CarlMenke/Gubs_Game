@@ -217,7 +217,15 @@ func _slot_transform(index: int, count: int) -> Transform3D:
 	var spot := Vector3(sin(angle) * ring_radius, 0.0, cos(angle) * ring_radius)
 	# Everyone faces the fire, then turns a little toward the camera so the
 	# ring reads as a group of faces rather than a circle of shoulders.
-	var yaw := Gub.yaw_towards(-spot) + deg_to_rad(sin(angle) * -22.0)
+	#
+	# A little, now, and not the 22 degrees it used to be. That number was
+	# chosen against an idle pose that stood square; the new Idle is a boxer's
+	# guard with the head already carried forward and down, so at the ends of
+	# the arc — where `sin(angle)` is largest and the Gub is most side-on to
+	# begin with — 22 degrees turned the last two Gubs far enough that the
+	# camera got the top of the head instead of the face. 10 degrees is still
+	# enough to break the circle-of-shoulders reading.
+	var yaw := Gub.yaw_towards(-spot) + deg_to_rad(sin(angle) * -10.0)
 	return Transform3D(Basis(Vector3.UP, yaw), spot)
 
 

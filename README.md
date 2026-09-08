@@ -74,7 +74,7 @@ plain one detaches from the terminal and prints nowhere.
 | move / sprint / crouch | `WASD`, `Shift`, `Ctrl` or `C` |
 | jump, slide | `Space`, crouch while sprinting |
 | dive | `Space` again in mid-air — once per jump, and you commit to it |
-| throw spear | left mouse — winds up, leaves the hand ~0.5 s later |
+| throw spear | left mouse — winds up, leaves the hand 0.71 s later |
 | aim (zooms in) | right mouse |
 | mushroom, lure | `Q`, `E` |
 | scoreboard, pause, chat | `Tab`, `Esc`, `T` |
@@ -211,6 +211,7 @@ and `tools/` is full of scenes for it:
 | `match_rules.tscn` | 60 assertions across 9 scoring scenarios, headless |
 | `net_loopback.tscn` | two real processes over a real socket. Not in the gate — it binds a port |
 | `inspect_scene.gd` | dump a scene's tree, clips, bones and triangle counts |
+| `preview_anim`, `preview_grip`, `preview_ragdoll` | contact sheets of a clip, the spear in the fist, a corpse falling |
 
 `combat_range` runs the **real match path** — an offline session on `Net`, a
 roster, `MatchState.register_arena`, kills through `MatchState.report_kill` — so
@@ -224,17 +225,26 @@ miss from a hit whose kill was dropped.
 Both are committed, so you only need this if you change a source file:
 
 ```bash
-python tools/decimate_assets.py     # needs numpy, scipy, pillow, fast_simplification
+bash tools/build_gub.sh             # the Gub: eight Mixamo FBX → one .glb. Needs Blender 5.2
+python tools/decimate_assets.py     # spear, lure, mushroom. numpy, scipy, pillow, fast_simplification
 python tools/make_sfx.py            # needs numpy
 python tools/rig_report.py          # checks the Gub's rig; prints, changes nothing
 ```
 
-The meshes arrive at ~500k triangles each and leave at 37k total, 90 MB → 7 MB,
-with UVs transferred back seam-aware. The Gub also gets its skin rebound and its
-animation curves repaired on the way through (`tools/rig_clean.py`, and D-023 for
-why); `tools/rig_report.py` is how you tell whether that worked, and is worth
-running after any change to the rig or to the source `.glb`. Sources in `assets/`
-are never modified; re-running any of these is always safe.
+The three props arrive at ~500k triangles each and leave at 19k between them,
+with UVs transferred back seam-aware. **The Gub has its own pipeline** and does
+not go through `decimate_assets` at all: `tools/build_gub.sh` runs
+`tools/build_gub.py` in headless Blender, which consolidates the eight FBX files
+in `assets/source/GUB_2/` into one 1.5 MB `art/generated/gub.glb` — one armature,
+one mesh, nine clips, 10.5k triangles, 1.80 m tall, root motion locked, every
+clip's facing aligned — and prints every measurement it takes (**D-029**). Three
+runs of it produce a byte-identical file, and it refuses to write one whose jump
+clips go through the floor. After a rebuild, run
+`"$GODOT" --headless --path . --import` once so Godot re-extracts the texture.
+
+`tools/rig_report.py` is how you tell whether a rig change helped, and is worth
+running after any change to the rig or to a source file. Sources in `assets/` are
+never modified; re-running any of these is always safe.
 
 ---
 

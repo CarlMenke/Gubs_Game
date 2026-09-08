@@ -2,21 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://7ki4qebog0g8"
-path.s3tc="res://.godot/imported/gub_shaded.png-6a93bb8781fd81d2283fc20af4aa29c3.s3tc.ctex"
-path.etc2="res://.godot/imported/gub_shaded.png-6a93bb8781fd81d2283fc20af4aa29c3.etc2.ctex"
+uid="uid://dt5757s1oxhj5"
+path.s3tc="res://.godot/imported/gub_basecolor.jpg-bbf9a088a05f603b25b085c651dbc9b5.s3tc.ctex"
+path.etc2="res://.godot/imported/gub_basecolor.jpg-bbf9a088a05f603b25b085c651dbc9b5.etc2.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "3d788b45c42d1311e7cb4521cf3667b0"
+"md5": "a3d6276610a69b62779c0afb4d4402ea"
 }
 
 [deps]
 
-source_file="res://art/generated/gub_shaded.png"
-dest_files=["res://.godot/imported/gub_shaded.png-6a93bb8781fd81d2283fc20af4aa29c3.s3tc.ctex", "res://.godot/imported/gub_shaded.png-6a93bb8781fd81d2283fc20af4aa29c3.etc2.ctex"]
+source_file="res://art/generated/gub_basecolor.jpg"
+dest_files=["res://.godot/imported/gub_basecolor.jpg-bbf9a088a05f603b25b085c651dbc9b5.s3tc.ctex", "res://.godot/imported/gub_basecolor.jpg-bbf9a088a05f603b25b085c651dbc9b5.etc2.ctex"]
 
 [params]
 

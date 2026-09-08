@@ -88,8 +88,11 @@ lies about its cooldown gets its request dropped.
 The spear is the one thing whose *feedback* is instant and whose *effect* is
 not. A click starts the throw animation everywhere — locally, and on the other
 peers through a cosmetic relay the host sends — and the spear leaves the hand
-0.57 s later, at the point in the clip where the arm is coming forward. The aim
-is read then and not at the click, so a moving target has to be led (**D-025**).
+0.71 s later, at the point in the clip where the arm is coming forward. That
+number is derived from the throw clip's window and rate rather than tuned:
+`GubAnimator.THROW_RELEASE_TIME`, which `gub_combat.gd` reads. The aim is read
+then and not at the click, so a moving target has to be led (**D-025**,
+**D-029**).
 
 The pattern throughout is **`rpc()` then call locally**. Both halves matter, and
 only one of them has ever been exercised offline — see the testbed note below.
@@ -100,7 +103,7 @@ only one of them has ever been exercised offline — see the testbed note below.
   land on a byte-identical island, because a spear that clears a ridge on the
   host has to clear it everywhere (**D-007**).
 - **Ragdolls.** Local and cosmetic. A corpse that disagrees between machines
-  costs nothing, and replicating 29 physical bones costs a great deal
+  costs nothing, and replicating thirteen physical bones costs a great deal
   (**D-010**).
 
 Thrown spears sit between the two: every peer simulates its own copy from the
@@ -236,9 +239,11 @@ tools/           dev tools and testbeds — none of this ships
 | `scripts/world/arena.gd` | the map scene, and `register_arena` |
 | `scripts/world/island_generator.gd` | terrain, and the height oracle |
 | `scripts/player/gub.gd` | a player character |
+| `scripts/player/gub_animator.gd` | the blend tree, built in code (**D-029**) |
 | `scripts/player/gub_combat.gd` | spear, mushroom, lure |
-| `scripts/player/ragdoll_builder.gd` | 29 physical bones, generated at runtime |
+| `scripts/player/ragdoll_builder.gd` | 13 physical bones, generated at runtime |
 | `scripts/items/spear_projectile.gd` | hand-integrated ballistics, swept for hits |
+| `tools/build_gub.py` | the Gub's whole art pipeline: eight FBX in, one `.glb` out |
 
 `export_presets.cfg` is deliberately committed — it is the only record of what a
 shippable build excludes (`tools/`, `assets/`, `docs/`), and ignoring it would

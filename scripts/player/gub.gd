@@ -8,10 +8,13 @@ extends CharacterBody3D
 ## else (see docs/DECISIONS.md D-004). Remote Gubs run no input and no gravity —
 ## they only smooth toward what the network last said.
 ##
-## Movement speeds are not arbitrary. They are the speeds the animation clips
-## were *authored* at (recovered from the root motion the asset pipeline strips
-## out — see D-008), multiplied by one shared factor. Getting this wrong is what
-## makes feet skate, and it is invisible until you look for it.
+## Movement speeds here are gameplay choices, and the animation is made to fit
+## them rather than the other way round. Each locomotion clip was authored at
+## its own ground speed (`AUTHORED_*` below, measured out of the root motion the
+## asset pipeline strips — see D-008), and `GubAnimator` plays each one back at
+## `game speed / authored speed`, so the feet stay planted at whichever of these
+## speeds the clip is assigned to. Change a speed here and the playback rate
+## follows; there is no shared factor to keep in step any more.
 
 signal died(killer_id: int, cause: int)
 signal respawned()
@@ -22,20 +25,24 @@ signal threw_spear(origin: Vector3, direction: Vector3)
 
 enum Cause { SPEAR, FALL, VOID, UNKNOWN }
 
-## Authored clip speeds, in metres per second, at the 0.35 import scale.
-## Printed by `tools/decimate_assets.py`; see docs/DECISIONS.md D-008.
-const AUTHORED_CROUCH_WALK := 1.21
-const AUTHORED_JOG := 2.20
-const AUTHORED_RUN := 4.01
+## The ground speed each locomotion clip was authored at, in metres per second,
+## measured on the finished 1.80 m rig by `tools/build_gub.py` (hips travel over
+## the cycle, divided by the cycle's *interval* count and not its frame count —
+## a one-frame error there is a 1.3% skate). `GubAnimator` divides the game
+## speeds below by these to get each clip's playback rate.
+const AUTHORED_WALK := 1.079
+const AUTHORED_RUN := 4.314
+const AUTHORED_CROUCH_WALK := 1.273
 
-## Everything is scaled up by this so the game plays at a lively pace, and the
-## locomotion clips are played back at the same factor. Because both sides use
-## the one number, the feet stay planted at any speed.
-const SPEED_SCALE := 1.35
-
-const CROUCH_SPEED := AUTHORED_CROUCH_WALK * SPEED_SCALE   # 1.63 m/s
-const JOG_SPEED := AUTHORED_JOG * SPEED_SCALE              # 2.97 m/s
-const RUN_SPEED := AUTHORED_RUN * SPEED_SCALE              # 5.41 m/s
+## How fast the Gub actually moves. Chosen for how the game plays, not for what
+## the clips were made at: walking is brisk, sprinting is nearly twice that, and
+## crouching is slow enough that choosing it costs you something. Each of these
+## is a blend point in the animator's locomotion space, so a Gub travelling at
+## exactly one of them is running exactly one clip at a rate that plants its
+## feet; in between, two cycles are blended.
+const WALK_SPEED := 2.3
+const RUN_SPEED := 5.4
+const CROUCH_SPEED := 1.6
 
 ## Gravity is 24 m/s² (project setting), which is deliberately about 2.4x real:
 ## it keeps jumps short and readable rather than floaty. 9.0 m/s of launch under
@@ -51,9 +58,9 @@ const AIR_FRICTION := 1.5
 
 ## The dive: jump again while already in the air and the Gub commits to a leap
 ## along whichever way it is trying to go. Once per airtime — that is what makes
-## it a decision rather than free flight — and the `Jump` clip is played whole
-## for it, because that clip was always a dive (**D-008**) and was never an
-## ordinary jump.
+## it a decision rather than free flight. The animator shows it with the
+## `JumpTwo` clip, scrubbed by where the body is in its arc, and lands it with
+## that clip's ground roll; see `GubAnimator`.
 ##
 ## The forward speed is deliberately well above RUN_SPEED: a dive that moved you
 ## no faster than running would be a worse way of running. Air friction is
@@ -70,17 +77,74 @@ const COYOTE_TIME := 0.12
 ## A jump pressed this long before landing fires on touchdown.
 const JUMP_BUFFER := 0.14
 
-const SLIDE_SPEED := 3.00 * SPEED_SCALE
-const SLIDE_DURATION := 0.85
-const SLIDE_FRICTION := 3.2
+## The slide. Its duration is set by the clip and not by taste: `Slide` puts the
+## hips on the floor from 0.43 s and keeps them there until 1.13 s, so a slide
+## the physics ends at 1.0 s ends while the body is still down, and the
+## animator's fade-out lands on the clip's own stand-up. A slide that outlasted
+## the low part of the clip would stand the Gub up and keep it sliding.
+const SLIDE_SPEED := 4.0
+const SLIDE_DURATION := 1.0
+const SLIDE_FRICTION := 2.8
 ## Sliding has to be worth doing and worth stopping: you must already be moving
 ## near a run to enter one, and you cannot re-enter immediately.
 const SLIDE_ENTRY_SPEED := RUN_SPEED * 0.7
 const SLIDE_COOLDOWN := 0.9
 
+## After landing from a dive the Gub is committed to its roll: movement input is
+## ignored for this long, nothing but ROLL_FRICTION acts on the horizontal
+## velocity, and jumping is refused but not lost (`_tick_timers` holds the
+## buffered press until the lock ends) — so the body carries through the roll
+## instead of skating across the floor in a tumbling pose. It is a gameplay rule
+## as much as a cosmetic one: the dive is fast (DIVE_FORWARD_SPEED 9.5 m/s) and
+## this is what it costs you at the far end. 0.45 s is a little under the 0.48 s
+## of `JumpTwo` the animator plays as the roll, so control is back before the
+## animation finishes rather than after it.
+##
+## It is a *ground* rule: the lock ends the moment the feet leave the floor
+## (`_tick_timers`), so a Gub that rolls off a ledge gets its air control and
+## AIR_FRICTION back at once instead of falling deaf to the stick with
+## ROLL_FRICTION dragging on it.
+##
+## Set to 0.0 to turn the rule off completely: every use of it is guarded, so at
+## zero the landing behaves exactly as it did before the rule existed.
+const ROLL_LOCK := 0.45
+## And only an airtime that lasted at least this long is rolled out of. The
+## animator declines to play its roll one-shot below the same threshold —
+## `GubAnimator.LAND_MIN_AIRTIME` *is* this constant — so without the guard here
+## a dive that clipped the ground after a tenth of a second would take movement
+## away for 0.45 s with no roll animation to explain it: the Gub would stand in
+## a locomotion pose, deaf to the stick. One number, one rule, both sides.
+const ROLL_MIN_AIRTIME := 0.20
+## Deliberately much less than GROUND_FRICTION (42): the point is that the body
+## keeps travelling.
+const ROLL_FRICTION := 10.0
+
+## The collision capsule follows the *pose the clips actually strike*, which is
+## not the pose the word "crouch" suggests. Measured off silhouettes of the
+## built asset: Idle stands 1.49 m (a hunched boxer's guard), CrouchWalk 1.51,
+## Run 1.41 and Walk 1.73 — the new crouch is not lower than the new idle at
+## all. So a 0.95 m crouch capsule, which is the right number for a character
+## that folds up when it crouches, would leave the whole chest and head of this
+## one outside its own hitbox: a crouching Gub could not be speared in the
+## head. 1.35 m keeps everything but the antennae inside, and still sits 0.20 m
+## below STAND_HEIGHT so crouching under an overhang works.
+##
+## The old asset had the same bug in a smaller size — 0.5 m of head outside its
+## 0.95 m crouch capsule — which is why this is stated in metres of measured
+## silhouette rather than as a fraction of standing height.
 const STAND_HEIGHT := 1.55
-const CROUCH_HEIGHT := 0.95
+const CROUCH_HEIGHT := 1.35
+## The slide is the one pose that really is prone: `Slide` puts the hips at
+## 0.17 m and keeps the body flat until ~0.95 s, and the whole mesh is under
+## 0.73 m through it (measured). A sliding Gub is therefore genuinely a low
+## target, and this is the height that says so. `_apply_capsule` rounds it up to
+## 0.77 — a 0.38 m radius capsule cannot be shorter than its own two
+## hemispheres — which is close enough to the pose that it is not worth
+## narrowing the body for.
+const SLIDE_HEIGHT := 0.75
 const CAPSULE_RADIUS := 0.38
+## Blend units per second, for both the crouch and the slide blend: a full
+## stand-to-crouch takes 1/9 s either way.
 const CROUCH_TRANSITION := 9.0
 
 ## How fast the body swings to face where it is going. Fast enough to feel
@@ -114,6 +178,15 @@ const LAYER_DEPLOYABLE := 8
 ## two dives in a row have to be two dives on every screen. `GubAnimator` watches
 ## it, so remote Gubs fire the dive from the same value their own client wrote.
 @export var sync_dive_serial: int = 0
+## Bumped once per ordinary jump, for the same reason and read the same way.
+## Nothing has to *fire* on a jump — the animator scrubs the jump clip by where
+## the body is in its arc, and leaving the ground with a positive vertical
+## velocity is already the whole story — but the serial says which kind of
+## airtime this is, which is what decides between the landing absorb and the
+## dive roll. It also arrives on time when `sync_grounded` does not: a remote
+## Gub whose grounded flag is a tick late still starts its airtime on the frame
+## the jump happened.
+@export var sync_jump_serial: int = 0
 
 var display_name: String = "Gub"
 ## The spear in the Gub's hand. Hidden while one is in flight.
@@ -141,7 +214,15 @@ var _jump_buffered: float = 0.0
 var _air_jump_spent: bool = false
 var _slide_time: float = 0.0
 var _slide_cooldown: float = 0.0
+## Counts down through the roll after a dive landing. See ROLL_LOCK.
+var _roll_lock: float = 0.0
+## How long the Gub has been off the ground, in seconds, reset on touchdown.
+## Read by `_detect_landing` to decide whether an airtime was long enough to be
+## worth rolling out of — see ROLL_MIN_AIRTIME.
+var _airtime: float = 0.0
 var _crouch_blend: float = 0.0
+## How prone the body is, on top of the crouch blend. See `pose_height`.
+var _slide_blend: float = 0.0
 var _was_grounded: bool = true
 var _fall_speed: float = 0.0
 ## Set by the camera each frame; movement is relative to where you are looking.
@@ -269,10 +350,23 @@ func _read_input() -> void:
 func _tick_timers(delta: float) -> void:
 	if is_on_floor():
 		_coyote = COYOTE_TIME
+		_airtime = 0.0
 	else:
 		_coyote = maxf(0.0, _coyote - delta)
-	_jump_buffered = maxf(0.0, _jump_buffered - delta)
+		_airtime += delta
+	# Frozen rather than decayed while the roll lock is running. `_handle_jump`
+	# refuses a jump during the roll and promises it fires on the frame the lock
+	# ends; a 0.14 s buffer running inside a 0.45 s lock would always be empty
+	# by then, so the promise was only true for a press made in the last 0.14 s
+	# of the roll. Nothing else can consume the buffer meanwhile — the Gub is on
+	# the floor, so `_coyote` is full and `_handle_jump` is the only reader.
+	if not is_rolling():
+		_jump_buffered = maxf(0.0, _jump_buffered - delta)
 	_slide_cooldown = maxf(0.0, _slide_cooldown - delta)
+	# The roll is a ground move. Leave the floor mid-roll — a dive that lands on
+	# a ledge and carries over its edge — and the lock ends there, or the fall
+	# would have no air control and ROLL_FRICTION instead of AIR_FRICTION.
+	_roll_lock = maxf(0.0, _roll_lock - delta) if is_on_floor() else 0.0
 
 
 func _apply_gravity(delta: float) -> void:
@@ -291,7 +385,9 @@ func _handle_crouch(delta: float) -> void:
 	if target < 0.5 and _crouch_blend > 0.0 and not _has_headroom():
 		target = 1.0  # something overhead; stay down
 	_crouch_blend = move_toward(_crouch_blend, target, CROUCH_TRANSITION * delta)
-	_apply_capsule(lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_blend))
+	_slide_blend = move_toward(_slide_blend, 1.0 if is_sliding() else 0.0,
+		CROUCH_TRANSITION * delta)
+	_apply_capsule(pose_height())
 
 
 func _handle_slide(delta: float) -> void:
@@ -305,8 +401,11 @@ func _handle_slide(delta: float) -> void:
 			_end_slide()
 		return
 
+	# Not while rolling out of a dive: a dive lands well above SLIDE_ENTRY_SPEED,
+	# so without this a held crouch turns every dive landing into a slide, on top
+	# of a roll that is already playing.
 	var can_slide := wants_crouch and wants_sprint and is_on_floor() \
-		and _slide_cooldown <= 0.0 \
+		and _slide_cooldown <= 0.0 and not is_rolling() \
 		and Vector3(velocity.x, 0.0, velocity.z).length() >= SLIDE_ENTRY_SPEED
 	if can_slide:
 		_begin_slide()
@@ -344,8 +443,40 @@ func is_crouching() -> bool:
 	return _crouch_blend > 0.5
 
 
+## Vertical speed, in metres per second, for anything that reads the arc rather
+## than simulating it — the animator scrubs both jump clips by this and records
+## a dive's launch speed from it.
+##
+## Locally it is just `velocity.y`. On a remote Gub it is the replicated value
+## and *not* the copy in `velocity`, which is one physics tick staler: the
+## synchronizer applies an incoming packet during idle processing, in the same
+## pass `GubAnimator._process` runs in, and `_follow_network` only copies
+## `sync_velocity` into `velocity` on the next physics tick. On the one frame
+## that matters — the frame a dive's serial arrives, when the launch speed is
+## read once and used for the whole leap — reading `velocity` there gives the
+## speed the body had *before* it dived.
+func vertical_speed() -> float:
+	return velocity.y if is_local() else sync_velocity.y
+
+
+## True through the ROLL_LOCK window after landing from a dive. Local only —
+## nothing on a remote Gub reads it, because a remote Gub is not simulated and
+## its animator fires the roll off `sync_dive_serial` instead.
+func is_rolling() -> bool:
+	return _roll_lock > 0.0
+
+
 func _handle_movement(delta: float) -> void:
 	if is_sliding():
+		return
+	# Rolling out of a dive: the input is dropped and only a light friction acts,
+	# so the body travels with the roll animation. Steering out of a tumble would
+	# make the roll a free reposition rather than the price of the dive.
+	if is_rolling():
+		var rolling := Vector3(velocity.x, 0.0, velocity.z)
+		rolling = rolling.move_toward(Vector3.ZERO, ROLL_FRICTION * delta)
+		velocity.x = rolling.x
+		velocity.z = rolling.z
 		return
 
 	var wish := _wish_direction()
@@ -406,10 +537,12 @@ func _wish_direction() -> Vector3:
 	return wish.normalized() if wish.length_squared() > 0.0001 else Vector3.ZERO
 
 
+## The speed this Gub is asking to travel at, which is also the animator's
+## locomotion blend position when it gets there.
 func target_speed() -> float:
 	if is_crouching():
 		return CROUCH_SPEED
-	return RUN_SPEED if wants_sprint else JOG_SPEED
+	return RUN_SPEED if wants_sprint else WALK_SPEED
 
 
 ## One key, two moves. On the ground (or inside coyote time) this is an ordinary
@@ -456,11 +589,19 @@ func _handle_jump() -> void:
 		return
 	if is_crouching() and not _has_headroom():
 		return
+	# Refused, not consumed: the buffer keeps running, so a jump pressed during
+	# the roll fires on the frame the lock ends rather than being swallowed.
+	if is_rolling():
+		return
 	_jump_buffered = 0.0
 	_coyote = 0.0
 	if is_sliding():
 		_end_slide()
 	velocity.y = JUMP_VELOCITY
+	# Before the emit, so anything listening already sees the new value. The
+	# animator does not use the signal — it is local-only — but it does watch
+	# this counter, on every peer.
+	sync_jump_serial += 1
 	jumped.emit()
 
 
@@ -468,6 +609,15 @@ func _detect_landing(grounded_before: bool) -> void:
 	var grounded_now := is_on_floor()
 	if grounded_now and not grounded_before and _fall_speed > 3.0:
 		landed.emit(_fall_speed)
+	# A landing that ends an airtime the dive was spent in is a roll landing, and
+	# `_air_jump_spent` is the only record of that — so it has to be read before
+	# the line below gives the dive back. The airtime has to clear
+	# ROLL_MIN_AIRTIME as well, because that is the same question the animator
+	# asks before playing the roll, and the two have to answer it alike: a dive
+	# into a wall two frames after take-off gets neither the lock nor the roll.
+	if grounded_now and not grounded_before and _air_jump_spent \
+			and _airtime >= ROLL_MIN_AIRTIME and ROLL_LOCK > 0.0:
+		_roll_lock = ROLL_LOCK
 	# Touching anything at all gives the dive back, including a ledge caught on
 	# the way down. Tying it to `landed` instead would leave a Gub that stepped
 	# gently off a rock unable to dive for the rest of the match.
@@ -510,9 +660,27 @@ func _apply_capsule(height: float) -> void:
 	_collision.position.y = _capsule.height * 0.5
 
 
+## The capsule height the two stance blends currently ask for. Two nested
+## lerps and not one three-way blend: the crouch blend takes standing down to
+## CROUCH_HEIGHT, and the slide blend takes whatever that produced down to
+## SLIDE_HEIGHT. So a slide entered from a run (crouch blend still 0) and one
+## entered from a crouch (crouch blend already 1) both end up prone, and both
+## the way in and the way out are smooth — including the moment a slide ends
+## with crouch still held, which is a 0.6 m change of target and would be a
+## visible capsule pop if it were a switch instead of a blend.
+func pose_height() -> float:
+	return lerpf(lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_blend),
+		SLIDE_HEIGHT, _slide_blend)
+
+
 func _has_headroom() -> bool:
 	var space := get_world_3d().direct_space_state
-	var from := global_position + Vector3.UP * (CROUCH_HEIGHT * 0.5)
+	# Started at the middle of the capsule the body currently has, so the ray
+	# always begins inside the Gub. Starting it at a fixed CROUCH_HEIGHT * 0.5
+	# was the same point by accident and is not any more: while sliding the
+	# capsule is only SLIDE_HEIGHT tall, and a start point above its top could
+	# begin inside the very overhang it is asking about and report clear.
+	var from := global_position + Vector3.UP * (pose_height() * 0.5)
 	var query := PhysicsRayQueryParameters3D.create(
 		from, global_position + Vector3.UP * (STAND_HEIGHT + 0.12))
 	query.collision_mask = LAYER_WORLD | LAYER_DEPLOYABLE
@@ -520,9 +688,11 @@ func _has_headroom() -> bool:
 	return space.intersect_ray(query).is_empty()
 
 
-## Height of the eyes, used to aim the camera and to spawn projectiles.
+## Height of the eyes, used to aim the camera and to spawn projectiles. It
+## follows the same blend as the capsule, so the camera drops with the body
+## through a crouch and lies down with it through a slide.
 func eye_height() -> float:
-	return lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_blend) * 0.86
+	return pose_height() * 0.86
 
 
 # --------------------------------------------------------------- networking ---
@@ -552,7 +722,12 @@ func _follow_network(delta: float) -> void:
 	_model_root.rotation.y = body_yaw
 	_crouch_blend = move_toward(_crouch_blend, 1.0 if sync_crouching else 0.0,
 		CROUCH_TRANSITION * delta)
-	_apply_capsule(lerpf(STAND_HEIGHT, CROUCH_HEIGHT, _crouch_blend))
+	# The same two blends the owner runs, off the replicated flags, so a remote
+	# Gub is as hittable as the one whose screen it is being played on. The
+	# combat range's dummies are remote Gubs.
+	_slide_blend = move_toward(_slide_blend, 1.0 if sync_sliding else 0.0,
+		CROUCH_TRANSITION * delta)
+	_apply_capsule(pose_height())
 
 
 # ------------------------------------------------------------ life & death ---
@@ -610,9 +785,27 @@ func revive_at(spawn: Transform3D) -> void:
 	_model_root.rotation.y = body_yaw
 	_slide_time = 0.0
 	_crouch_blend = 0.0
+	_slide_blend = 0.0
 	_lure_until = 0.0
 	_air_jump_spent = false
 	_jump_buffered = 0.0
+	_airtime = 0.0
+	_roll_lock = 0.0
 	_apply_capsule(STAND_HEIGHT)
-	_publish()
+	# The replicated fields are seeded here, field by field, and deliberately
+	# *not* by calling `_publish()`. `_publish` ends with
+	# `sync_grounded = is_on_floor()`, which is only a true statement on the
+	# peer that owns this Gub: a remote copy never calls `move_and_slide`, so
+	# its `is_on_floor()` is permanently false. Worse, the value it writes never
+	# changes afterwards — the owner was standing before it died and is standing
+	# now, true to true — so ON_CHANGE replication has nothing to correct, and
+	# every other client keeps the respawned Gub in the airborne pose for the
+	# rest of the round. Spawn pads are on the ground, so this says so outright;
+	# the owner's first real `_publish` follows one physics tick later.
+	sync_position = spawn.origin
+	sync_yaw = body_yaw
+	sync_velocity = Vector3.ZERO
+	sync_crouching = false
+	sync_sliding = false
+	sync_grounded = true
 	respawned.emit()
