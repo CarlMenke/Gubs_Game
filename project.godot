@@ -38,6 +38,10 @@ window/size/viewport_height=900
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/Tripo3d_Godot_Bridge/plugin.cfg")
+
 [input]
 
 move_forward={
@@ -161,3 +165,7 @@ environment/defaults/default_clear_color=Color(0.0235294, 0.0313726, 0.0470588, 
 anti_aliasing/quality/screen_space_aa=1
 occlusion_culling/use_occlusion_culling=true
 environment/defaults/default_environment="res://resources/config/default_env.tres"
+
+[tripo_bridge]
+
+last_cleanup="2026-09-07T11:34:26"
