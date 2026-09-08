@@ -1587,3 +1587,140 @@ bones, an AABB of 1.902 × 1.800 × 0.748 with its base at y = 0, and
 `nodes/root_scale = 1.0` — the model is authored in metres and the skeleton is
 unscaled, so bone attachments and ragdoll capsules are in the same units as the
 world.
+## D-030 — A map is an id in the match config, not a scene path on the wire
+The game is about to have a second map: a bought `.glb` of a well-known FPS arena,
+hand-made where Whisperbloom Hollow is generated (D-007). Making room for it needed
+one decision — how a peer learns which map it is building — and everything else
+followed from it.
+
+**`MatchConfig.map` carries an id, and `MapCatalog` turns ids into maps.** A scene
+path would have been shorter by a whole file. It would also mean a client calling
+`load()` on a string a peer sent it, which is the one thing the config's flat
+dictionary of primitives exists to avoid: `apply_dict` validates everything it
+reads because on a client every value in it is attacker-controlled (see the header
+of `match_config.gd`). An id is validated the same way every other field is — an
+entry that is not in the catalog clamps to `MapCatalog.DEFAULT` in `_clamp_all`,
+alongside the kill limit and the enums — and the only paths in the build are the
+ones a developer typed into the catalog.
+
+The id also survives version skew in the only direction that matters. A host running
+a build with a map an older client does not have sends an id that client cannot
+resolve, and the client falls back to the island rather than to a failed `load()`
+inside `_ready`. That is still a broken match, but it is a broken match that reaches
+the results screen instead of one that hangs behind a loading card forever.
+
+**The catalog is one table because "the map" was previously spelled out three times.**
+`arena.gd` built it, `SceneFlow` named it on the loading card, and the lobby offered
+a seed for it, and each of those knew "Whisperbloom Hollow" independently. Two of them
+disagreeing about which map is loading is not a bug anyone would think to look for.
+The entry carries the display name and the loading line as well as the kind and the
+scene, so the card is generated from the same row the arena builds from.
+
+**The seed and the map are separate fields, and only one of them means anything at a
+time.** A static map has no seed — the lobby hides the seed row rather than greying it
+out, for the same reason `friendly_fire` is hidden in a free-for-all: a greyed control
+invites the question of what it would do, and there is no good answer.
+
+**`arena.gd` branches once, at the top, and the branch is about lighting as much as
+geometry.** A static map owns its own `WorldEnvironment` and `Sun`, so
+`_build_environment` and the moon must not run for one — the island's environment is
+tuned around torches being the key light at 0.30 moon energy (D-009), and dropping it
+over a daylit arena makes both look broken. That is why the contract in
+`static_map.gd` names the nodes it does, and why the void height is an export on the
+map rather than `MatchState.VOID_HEIGHT`: -45 metres is a property of a floating island
+with a deep rocky underside, not of an arena standing on the ground.
+
+`scripts/world/static_map.gd` is written and the first map scene is not. The stub is
+deliberate — the plumbing is testable today, and `MapCatalog` deliberately contains
+no entry for a scene that does not exist yet, because `tools/playthrough.tscn` loads
+for real every scene a map names.
+
+## D-031 — Rust: collision baked in world space at load, and culling put back
+The second map is a hand-made one — a fan remake of a small industrial FPS arena,
+42 x 28 x 64 m of shipping containers and scaffolding, 148 meshes and 96,301
+triangles — instanced whole by `arena.gd`'s static branch (D-029). Three things
+about it needed deciding, and all three came out differently from what the
+obvious answer would have been.
+
+**Collision is built at runtime, in world space, from transformed triangles.**
+The obvious answer is the importer's `-col` name suffix, or a `CollisionShape3D`
+under each mesh carrying that mesh's `create_trimesh_shape()`. Neither works
+here: 66 of the map's 150 nodes carry a **non-uniform** scale and five carry a
+**negative** one, and a `ConcavePolygonShape3D` is not reliably scaled by the
+transform of the node above it — the physics server takes a single scale off the
+shape's owner, and a non-uniform one comes out wrong. The failure is not
+dramatic, which is the problem: the containers look right and you fall through a
+corner of one.
+
+So `StaticMap._ready` walks every `MeshInstance3D`, transforms its `get_faces()`
+into world space by its own `global_transform`, and hands the result to a single
+`StaticBody3D` that has no transform of its own. The scaling problem stops
+existing rather than being worked around. **`backface_collision` is on**, because
+those five negatively scaled instances arrive wound the other way and a spear
+would otherwise pass straight through the tower supports. The nets keep their
+collision — they are chain-link, you can see through them, and a spear should
+still stop on one.
+
+Runtime rather than baked into a `.res`: it costs **110-190 ms** on the machine
+this was written on, against 2.8 s to load the `.glb` itself, so a bake would
+save under 7% of the map's load time and would add a build artefact that goes
+stale silently the next time the source changes. The triangles are grouped into
+16 m cells by *instance* — 12 shapes for this map — which keeps each shape's
+bounding box tight without a per-triangle loop in GDScript. Bucketing whole
+instances is 148 iterations; bucketing triangles would be 96,301, and the actual
+vertex work stays inside the engine's `Transform3D * PackedVector3Array`.
+
+**Back-face culling is forced back on, at load, on 28 of the 30 materials.**
+Every material in the export is `doubleSided`, so the importer gives them all
+`CULL_DISABLED` and the renderer draws the inside of every container, barrel and
+oil tank before throwing it away behind the outside. The two exceptions are the
+transparent ones — the chain-link `Net` and the `Solid Glass` in the doors — which
+have to stay double-sided or they become see-through from one side only. The five
+negative-determinant instances get a *duplicated* material with culling still off,
+per instance, because a negative determinant reverses the winding the rasteriser
+sees and back-face culling turns them inside out; duplicating is how the other
+hundred-odd nodes sharing those materials keep their culling. `Mesh.030` on
+`SM _ Tower _001` carries COLOR_0/COLOR_1, and its material imports with
+`vertex_color_use_as_albedo` false, so nothing is tinting it — checked, not
+assumed.
+
+**Spawns sit at y ≈ 1.70 and were found by rendering, not by reading
+coordinates.** The map's floor is not at zero: the walkable plane is 1.70 m up,
+with a second tier near 2.0 and catwalks at 4-6.5 m. The eight pads are on the
+main plane, each lifted 0.12 m the way the island lifts its solved pads, each
+with its own measured floor height because the yard is not flat (1.59 to 1.82 m
+across the eight). Finding them needed a tool: `tools/preview_map.gd` scans the
+floor on a 2 m grid and prints three ASCII maps — height, whether a Gub-sized
+capsule fits, and **how far you can see toward the middle from there** — and that
+third one is the one that mattered. Two of the first eight pads passed every
+geometric test and opened onto a container wall a metre away. The tool then
+re-checks each pad with the physics the match will use, and the check is in the
+gate, so a pad that ends up inside a shipping container fails a build rather than
+being found by a player.
+
+**The void is at -13 m, not -45.** The lowest vertex in the map is -0.64, so
+anything below -13 has left through the one gap in the perimeter and is not
+coming back. Forty-five metres of falling is a property of a floating island
+(D-029), not of a yard.
+
+**The environment is lighting and nothing else.** None of Whisperbloom Hollow's
+look comes across — no sky shader, no moon, no aurora, no volumetric fog, no
+torches, no scatter. Rust's own textures are the look. `rust_env.tres` is a plain
+`ProceduralSkyMaterial`, one warm sun at 50 degrees with shadows, sky-sourced
+ambient and reflections, and the island's tonemapping unchanged. It keeps glow
+(a thrown spear makes its own material emissive so it can be seen coming, D-027,
+and with glow off it simply cannot), keeps SSAO at about half the island's
+intensity, drops volumetrics for plain distance fog, and has no `Lights` node at
+all — it is outdoors under a hard sun and the containers with interiors are open
+at one end.
+
+One thing worth writing down because it cost an hour: **with
+`ambient_light_source` set to SKY, Godot 4.7 ignores `ambient_light_energy` and
+`ambient_light_sky_contribution` entirely.** Sweeping the energy from 1.0 to 2.0
+produced byte-identical renders; only switching the source off changed anything.
+The control that works is `background_energy_multiplier`, and 1.45 is where the
+shadow under the drilling tower stops crushing (9% of the frame below 8/255 at
+1.0, 1.6% at 1.45) with nothing anywhere clipping. This also means
+`arena_env.tres`'s `ambient_light_energy = 2.5` does nothing — left alone, since
+that is the island's file and its look is already signed off, but the comment
+there is wrong about why it is dark.

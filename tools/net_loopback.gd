@@ -86,6 +86,12 @@ const HOST_CHAT := "host to client, same socket"
 ## is exactly representable, so the two together cover both branches.
 const CONFIG_SEED := 4815162342
 const CONFIG_KILL_LIMIT := 7
+## The map the host picks in the lobby. A string rather than a number, and the
+## one config field the arena cannot recover from getting wrong — a client that
+## missed it builds a different world from everyone else. Point this at a second
+## map the moment there is one; today the catalog holds only the island, so this
+## proves the field crosses the wire rather than that the choice does.
+const CONFIG_MAP := MapCatalog.DEFAULT
 const CONFIG_LURE_RADIUS := 12.3
 const CONFIG_SPEAR_RECHARGE := 4.25
 ## Short, but not skipped: PLAYING is only ever reached through WARMUP, and on
@@ -325,6 +331,7 @@ func _stage_names() -> bool:
 func _stage_config() -> bool:
 	print("net_loopback: stage 4/9 — config replication")
 	var settings := Net.config.duplicate_config()
+	settings.map = CONFIG_MAP
 	settings.map_seed = CONFIG_SEED
 	settings.kill_limit = CONFIG_KILL_LIMIT
 	settings.lure_radius = CONFIG_LURE_RADIUS
@@ -336,6 +343,7 @@ func _stage_config() -> bool:
 	# `Net.config`: it re-clamps on the way in and broadcasts on the way out.
 	Net.update_config(settings)
 	_check("the host took the new seed", Net.config.map_seed, CONFIG_SEED)
+	_check("the host took the chosen map", Net.config.map, CONFIG_MAP)
 
 	var mine := Net.config.to_dict()
 	var reply := await _request("config", {"want": mine}, STEP_TIMEOUT)
@@ -345,8 +353,8 @@ func _stage_config() -> bool:
 		JSON.stringify(reply.get("config", {})), JSON.stringify(mine))
 	_check("the client was told the config changed",
 		int(reply.get("changes", 0)) > 0, true)
-	print("net_loopback:   seed %d, kill limit %d, lure radius %s all arrived" % [
-		CONFIG_SEED, CONFIG_KILL_LIMIT, str(CONFIG_LURE_RADIUS)])
+	print("net_loopback:   map %s, seed %d, kill limit %d, lure radius %s all arrived" % [
+		CONFIG_MAP, CONFIG_SEED, CONFIG_KILL_LIMIT, str(CONFIG_LURE_RADIUS)])
 	return true
 
 
@@ -646,6 +654,11 @@ func _serve(message: Dictionary) -> void:
 			_check("the config arrived byte for byte",
 				JSON.stringify(got), JSON.stringify(want))
 			_check("the seed survived as a 64-bit int", Net.config.map_seed, CONFIG_SEED)
+			# The host picks the map in the lobby and this is the whole of how
+			# a client learns which one: there is no separate message, and the
+			# arena reads `Net.config.map` in its own `_ready`.
+			_check("the map the host chose arrived", Net.config.map, CONFIG_MAP)
+			_check("and it is a map this build has", MapCatalog.is_valid(Net.config.map), true)
 			_check("a float that needs 64 bits survived",
 				Net.config.lure_radius, CONFIG_LURE_RADIUS)
 			_check("config_changed was emitted", _config_changes > 0, true)

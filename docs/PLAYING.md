@@ -70,6 +70,10 @@ same Wi-Fi needs nothing at all. The caption says **LAN**.
 | Chat | `T` | | |
 | Pause / settings | `Esc` | | |
 
+**The host picks the map** in the lobby's Match panel — Whisperbloom Hollow, the
+enchanted island, or Rust, an industrial yard in daylight — and everyone in the
+lobby plays whichever one they chose.
+
 Two of those are worth a sentence. **Double-tap `Space`** — jump, then jump
 again while you are still in the air — is a dive: a long committed leap that you
 only get once per jump and cannot take back. And the **spear does not leave on

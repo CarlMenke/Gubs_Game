@@ -1,0 +1,118 @@
+[gd_resource type="Environment" load_steps=3 format=3 uid="uid://bq2gubrustenv"]
+
+; Environment for Rust. Hot, dry, mid-afternoon — the opposite end of the day
+; from `arena_env.tres`, which is Whisperbloom Hollow's torch-lit dusk (D-009).
+;
+; This file is *only* lighting. None of the island's look comes across: not the
+; sky shader with the moon and the aurora in it, not the volumetric fog the
+; torch shafts live in, not the night palette. Rust's own textures are the look,
+; and the whole job here is to expose them — bright enough that a container in
+; the tower's shadow still reads, dim enough that the sunlit yard does not
+; clip. Everything below was set from renders, not from taste.
+;
+;   * A plain `ProceduralSkyMaterial`: pale blue overhead, warm haze at the
+;     horizon. It is also the only source of ambient and of reflections
+;     (`ambient_light_source`/`reflected_light_source` both the sky), so the
+;     fill light and the sky agree by construction. No shader, no moon, no
+;     aurora — there is nothing in it to go and look at.
+;   * **`background_energy_multiplier` is the exposure control here, not
+;     `ambient_light_energy`.** With `ambient_light_source` set to SKY, Godot
+;     4.7 takes ambient from the sky's radiance cubemap and *ignores*
+;     `ambient_light_energy` and `ambient_light_sky_contribution` entirely —
+;     measured, not assumed: sweeping the energy from 1.0 to 2.0 produced
+;     byte-identical renders, and only switching the source off changed
+;     anything. (Which also means `arena_env.tres`'s 2.5 does nothing. Left
+;     alone; that is the island's file and its look is already signed off.)
+;     So 1.45 is the number that matters, and it was found by rendering: at 1.0
+;     the shadow under the drilling tower crushed 9% of the frame to black, at
+;     1.45 that is 1.6% and nothing anywhere clips. Above about 1.8 the yard
+;     goes flat.
+;   * ACES at white 6.0 and exposure 1.0, which is `arena_env.tres`'s
+;     tonemapping unchanged — the two maps should not need different eyes.
+;
+; What is on, and why, since a map is allowed to differ here:
+;
+;   * **Glow, at low intensity.** Not a look choice: a thrown spear turns its
+;     own material emissive so it can be seen coming (D-027), and with glow off
+;     it simply is not. The threshold is 2.0 rather than the island's 1.45,
+;     because everything here is already lit to about 1.0 by the sun and the
+;     island's threshold would bloom the whole arena.
+;   * **SSAO, at about half the island's intensity.** It is what puts a barrel
+;     on the ground rather than beside it. `ssao_light_affect` is 0 so it only
+;     darkens the ambient — under a hard sun, letting AO bite into direct light
+;     is most of what "murky" means.
+;   * **Plain distance fog, no volumetrics.** Volumetrics buy the island its
+;     torch shafts and are worth the cost at night; in daylight they buy a grey
+;     wash that height fog gives for nothing. The density is low (0.0016)
+;     because this arena is 64 m long and fog tuned for a 55 m island would hide
+;     the far end of it.
+;   * **No SDFGI**, as on the island, and for a better reason here: the geometry
+;     never moves, and nothing in the frame budget is going spare.
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_rustsky"]
+sky_top_color = Color(0.26, 0.44, 0.74, 1)
+sky_horizon_color = Color(0.79, 0.73, 0.62, 1)
+sky_curve = 0.13
+sky_energy_multiplier = 1.0
+ground_bottom_color = Color(0.36, 0.3, 0.24, 1)
+ground_horizon_color = Color(0.71, 0.64, 0.53, 1)
+ground_curve = 0.04
+ground_energy_multiplier = 1.0
+sun_angle_max = 12.0
+sun_curve = 0.08
+use_debanding = true
+
+[sub_resource type="Sky" id="Sky_rust"]
+sky_material = SubResource("ProceduralSkyMaterial_rustsky")
+radiance_size = 3
+
+[resource]
+resource_name = "RustEnvironment"
+background_mode = 2
+sky = SubResource("Sky_rust")
+background_energy_multiplier = 1.45
+ambient_light_source = 3
+reflected_light_source = 2
+tonemap_mode = 3
+tonemap_exposure = 1.0
+tonemap_white = 6.0
+ssao_enabled = true
+ssao_radius = 1.1
+ssao_intensity = 1.2
+ssao_power = 1.4
+ssao_detail = 0.6
+ssao_horizon = 0.08
+ssao_sharpness = 0.98
+ssao_light_affect = 0.0
+ssao_ao_channel_affect = 0.35
+glow_enabled = true
+glow_levels/1 = 0.0
+glow_levels/2 = 0.35
+glow_levels/3 = 0.85
+glow_levels/4 = 1.0
+glow_levels/5 = 0.7
+glow_levels/6 = 0.25
+glow_levels/7 = 0.0
+glow_normalized = true
+glow_intensity = 0.55
+glow_strength = 1.0
+glow_mix = 0.05
+glow_bloom = 0.0
+glow_blend_mode = 1
+glow_hdr_threshold = 2.0
+glow_hdr_scale = 2.0
+glow_hdr_luminance_cap = 10.0
+fog_enabled = true
+fog_light_color = Color(0.74, 0.69, 0.58, 1)
+fog_light_energy = 1.0
+fog_sun_scatter = 0.12
+fog_density = 0.0016
+fog_aerial_perspective = 0.2
+fog_sky_affect = 0.0
+fog_height = -2.0
+fog_height_density = 0.02
+volumetric_fog_enabled = false
+adjustment_enabled = true
+adjustment_brightness = 1.0
+adjustment_contrast = 1.04
+adjustment_saturation = 1.06

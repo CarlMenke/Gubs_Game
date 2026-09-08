@@ -61,8 +61,16 @@ const TEAM_NONE := -1
 
 @export_range(MIN_PLAYERS, MAX_PLAYERS) var max_players: int = MAX_PLAYERS
 
+## Which map the match is played on: an id from `MapCatalog`, not a scene path,
+## so a config that names a map this build has never heard of is a value to
+## sanitise rather than a `load()` of whatever a peer sent. It travels with the
+## roster exactly as `map_seed` does, because every peer has to know which map
+## it is building before `arena.tscn` loads.
+@export var map: String = MapCatalog.DEFAULT
+
 ## Seed for the island generator. Every client builds the map from this, so it
 ## must be identical everywhere — it is replicated with the rest of the config.
+## Only means anything for a procedural map; a static one ignores it.
 @export var map_seed: int = 20260904
 
 
@@ -71,7 +79,7 @@ const _FIELDS := [
 	"friendly_fire", "respawn_delay", "spawn_protection", "warmup_time",
 	"spear_recharge", "mushroom_cooldown", "mushroom_lifetime", "mushroom_max_active",
 	"lure_cooldown", "lure_radius", "lure_hold", "lure_pull_strength", "lure_fuse",
-	"max_players", "map_seed",
+	"max_players", "map", "map_seed",
 ]
 
 
@@ -128,6 +136,12 @@ func _clamp_all() -> void:
 	lure_pull_strength = clampf(lure_pull_strength, 1.0, 60.0)
 	lure_fuse = clampf(lure_fuse, 0.5, 5.0)
 	max_players = clampi(max_players, MIN_PLAYERS, MAX_PLAYERS)
+	# An id nobody recognises is either a peer from a build that has a map this
+	# one does not, or garbage. Both want the same answer: the map every build
+	# has. Anything else means `arena.gd` reaching for a scene that is not there,
+	# mid-`_ready`, with no way to recover.
+	if not MapCatalog.is_valid(map):
+		map = MapCatalog.DEFAULT
 	# TIME_ONLY with no clock would never end.
 	if win_condition == WinCondition.TIME_ONLY and time_limit <= 0:
 		time_limit = 600

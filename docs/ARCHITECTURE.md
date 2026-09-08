@@ -191,8 +191,38 @@ no main thread left to animate anything once the island starts building.
 
 ## The world
 
-`scenes/world/arena.tscn` is Whisperbloom Hollow. It is built from one integer
-seed at load, in an order that is load-bearing:
+`scenes/world/arena.tscn` is whichever map the lobby chose. Which one is
+`Net.config.map`, an id into `scripts/world/map_catalog.gd` that rides with the
+roster the way `map_seed` does, so every peer knows the answer before the scene
+loads; an id this build does not have sanitises to the island rather than
+becoming a `load()` of a string off the wire (**D-030**). `arena.gd` branches on
+the catalog entry's `kind` exactly once: a **procedural** map is generated below,
+and a **static** one is a hand-made scene that brings its own environment, sun,
+lights and spawn markers — the contract is written down in
+`scripts/world/static_map.gd`, and no procedural step runs for one.
+
+There are two maps.
+
+**Rust** is the static one: a hand-made industrial arena, 42 x 28 x 64 m,
+instanced whole from `art/maps/rust/rust.glb` (148 meshes, 96,301 triangles) by
+`scenes/world/maps/rust.tscn`. Nothing about it is authored except four nodes and
+eight coordinates — the geometry is the import, untouched. The two things the
+import cannot supply, `StaticMap` builds at load in about 150 ms (**D-031**):
+
+- **collision**, baked into *world-space* triangles on one `StaticBody3D` on
+  physics layer 1, because two thirds of the map's nodes carry a non-uniform
+  scale and a `ConcavePolygonShape3D` under one of those is not scaled reliably;
+- **back-face culling**, which the importer turned off on all 30 materials
+  because the export marks every one of them `doubleSided`.
+
+Its walkable floor is at y ≈ 1.70, not zero, and its eight spawn pads sit on that
+plane. They were found with `tools/preview_map.gd`, which scans the floor on a
+grid and prints it, and they are re-checked by that same tool in the gate with
+the physics the match will use — a ray that has to find a floor and a Gub-sized
+capsule that has to fit.
+
+**Whisperbloom Hollow** is the procedural one. It is built
+from one integer seed at load, in an order that is load-bearing:
 
 1. **terrain** — everything else asks it how high the ground is;
 2. **landmarks** — hand-placed, and they get first refusal on where they stand;
@@ -237,6 +267,8 @@ tools/           dev tools and testbeds — none of this ships
 | `scripts/game/match_config.gd` | mode, limits, timers, cooldowns, friendly fire |
 | `scripts/util/scene_flow.gd` | transitions, the fade, cursor policy |
 | `scripts/world/arena.gd` | the map scene, and `register_arena` |
+| `scripts/world/map_catalog.gd` | the list of maps; ids in, entries out |
+| `scripts/world/static_map.gd` | what a hand-made map scene owes the match, and its collision |
 | `scripts/world/island_generator.gd` | terrain, and the height oracle |
 | `scripts/player/gub.gd` | a player character |
 | `scripts/player/gub_animator.gd` | the blend tree, built in code (**D-029**) |

@@ -13,7 +13,7 @@ extends Node
 ##         res://tools/ui_range.tscn out.png 40 <mode>
 ##
 ## Modes: menu, menu_join, menu_notice, settings, settings_network,
-##        lobby, lobby_full, lobby_teams, lobby_client.
+##        lobby, lobby_full, lobby_teams, lobby_client, lobby_map.
 
 const MENU_SCENE := preload("res://scenes/ui/main_menu.tscn")
 const LOBBY_SCENE := preload("res://scenes/ui/lobby.tscn")
@@ -53,6 +53,8 @@ func _ready() -> void:
 			_open_lobby(5, true, true)
 		"lobby_client":
 			_open_lobby(4, false, false)
+		"lobby_map":
+			_open_lobby(3, false, true)
 		_:
 			_open_lobby(3, false, true)
 
@@ -136,3 +138,43 @@ func _open_lobby(extra: int, teams: bool, as_host: bool) -> void:
 	await get_tree().process_frame
 	for line: Array in FAKE_CHAT:
 		Net.chat_received.emit(FAKE_BASE + int(line[0]), String(line[1]))
+	if _mode == "lobby_map":
+		await _show_map_row(lobby)
+
+
+## Scroll the match panel down to the Map section.
+##
+## Its own mode rather than a change to `lobby`, for the same reason
+## `settings_network` is: the top of the panel is the reference shot and moving
+## it would mean the mode that has always shown Mode and Limits stops doing so.
+##
+## The Map row is the only thing in that panel a *host* can change that a
+## screenshot would otherwise never see — the panel scrolls, its scrollbar is
+## invisible against the theme (a known issue in docs/STATUS.md), and the row
+## sits well below the fold at every size the game runs at.
+func _show_map_row(lobby: Node) -> void:
+	# Searched from the panel, not from the lobby: the player list has a
+	# `Scroll` of its own and it comes first in tree order, so a search from the
+	# root would tidily scroll the wrong container.
+	var panel := lobby.find_child("MatchSettings", true, false)
+	if panel == null:
+		push_warning("ui_range: the lobby has no match settings panel")
+		return
+	var row := panel.find_child("MapRow", true, false) as Control
+	var scroll := panel.find_child("Scroll", true, false) as ScrollContainer
+	if row == null or scroll == null:
+		push_warning("ui_range: the match panel has no map row to scroll to")
+		return
+	# Two frames: the rows are built in `_ready` and the container has not laid
+	# them out yet, so scrolling before this asks for a position of zero.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	scroll.ensure_control_visible(row)
+	# And then the row under it, so the shot carries the whole section rather
+	# than the picker with the seed row sliced off at the bottom edge. The two
+	# belong together: which map is chosen is what decides whether there is a
+	# seed row at all.
+	var rows := row.get_parent()
+	var last := rows.get_child(rows.get_child_count() - 1) as Control
+	if last != null:
+		scroll.ensure_control_visible(last)

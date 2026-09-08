@@ -22,12 +22,12 @@ island and out to a results screen, and two automated checks now walk that path:
 one in a single process, one across two processes over a real socket.
 
 ```
-bash tools/smoke_test.sh        # 10 checks, ~2 minutes, finds Godot by itself
+bash tools/smoke_test.sh        # 13 checks, ~1 minute, finds Godot by itself
 bash tools/net_test.sh          # two processes, one socket. Not in the gate
 ```
 
-`smoke_test.sh` is the gate and it passes, 10 of 10. `net_test.sh` passes all
-nine of its stages (55 + 30 assertions) and still reports FAIL, deliberately:
+`smoke_test.sh` is the gate and it passes, 13 of 13. `net_test.sh` passes all
+nine of its stages (88 + 32 assertions) and still reports FAIL, deliberately:
 one transient engine warning survives at match start, and it holds itself to
 "the engine stayed quiet" rather than "the assertions passed". D-022 explains
 what it is and what the real fix costs.
@@ -114,6 +114,10 @@ of what that means:
   rock arch, log bridges to two satellite islets, stone paths, 15 torches,
   fireflies, spores, falling leaves, and two ambient beds. It takes 2-6 seconds
   to build, which is why `SceneFlow` shows a loading card.
+- **The second map** (Rust) is hand-made rather than generated: an industrial
+  yard, 42 x 28 x 64 m, instanced from a 43 MB `.glb` with its collision and its
+  back-face culling built at load (**D-031**). The host picks between the two in
+  the lobby's Match panel; the seed row hides itself for the static one.
 - **The UI** is themed and complete: menu with a live glade behind it, an
   eight-Gub lobby, HUD, scoreboard, kill feed, pause, settings, chat, results.
 - **Combat** is a one-hit spear, a mushroom you cannot be shot through, and a
@@ -138,7 +142,21 @@ of what that means:
    joiner is never told about Gubs that already spawned, because `_create_gub`
    is broadcast once, at spawn time, and there is no world-state-on-join
    message. That is the whole of the work.
-3. **Playing it, properly.** A person has walked around the island and thrown
+3. **Rust has never been played on by a person.** The map itself is **done** —
+   `scenes/world/maps/rust.tscn`, `resources/config/rust_env.tres`, the
+   `"rust"` row in `MapCatalog`, and `scripts/world/static_map.gd` filled in
+   (**D-031**). The host picks it in the lobby's Match panel, and the gate walks
+   a whole match on it and re-checks all eight spawn pads with the physics every
+   build. What no harness covers is the part that needs eyes and hands: whether
+   the pads are *fair* rather than merely standable, whether a 42 x 64 m yard of
+   shipping containers plays well with a spear that drops, and whether it holds
+   frame rate with eight Gubs and their ragdolls in it. Nobody has stood on it
+   in a real match. Two smaller things are also unconfirmed: the map is lit by
+   one sun and no fill lights, so a container interior that turns out too dark
+   in play wants a couple of shadowless `OmniLight3D`s under a `Lights` node
+   (the contract already allows for it and the scene has none); and the void
+   height of -13 m was reasoned from the geometry, not fallen through.
+4. **Playing it, properly.** A person has walked around the island and thrown
    spears, and the automated checks cover the rest — but nobody has played a
    *match* to a conclusion against another person, and no one has tuned the feel:
    movement, camera, spear arc, cooldowns, or how readable the map is in a fight
@@ -199,14 +217,15 @@ Three tiers, because three different kinds of claim need three different proofs
 
 | tool | proves |
 |---|---|
-| `tools/smoke_test.sh` | **the gate** — import, and ten checks |
+| `tools/smoke_test.sh` | **the gate** — import, and thirteen checks |
 | `tools/cursor_flow.tscn` | entering a match takes the mouse, and leaving gives it back |
-| `tools/playthrough.tscn` | the whole path, menu to results, 39 assertions |
-| `tools/match_rules.tscn` | 60 assertions across 9 scoring scenarios |
+| `tools/playthrough.tscn` | the whole path, menu to results; 50 assertions on the island, 58 on Rust. Takes a map id after a `--` |
+| `tools/match_rules.tscn` | 66 assertions across 9 scoring scenarios |
 | `tools/invite_codes.tscn` | 2675 assertions over 1296 endpoints, plus the host's typed public address |
 | `tools/ragdoll_stability.tscn` | a corpse is still a corpse 150 ticks later |
 | `tools/combat_range.tscn` | the real match path: a spear, a mushroom, a lure |
 | `tools/net_loopback.tscn` | two processes, one socket, including a *client* using all three abilities. **Not in the gate** — it binds a port |
+| `tools/preview_map.tscn` | Rust: renders it, and checks every spawn pad with the physics. **In the gate** |
 | `tools/preview_*.tscn` | it *looks* right. Needs a person, always will |
 
 **`playthrough` is the one that catches integration.** Every other harness looks
@@ -228,8 +247,10 @@ screen to the flow.
 `preview_island` views: `wide under eye shrine grove arch bridge spawns hollow`,
 plus `match` for real Gubs and the diagnostic flags in its `FLAGS` dictionary.
 `ui_range` modes: `menu menu_join menu_notice settings lobby lobby_full
-lobby_teams lobby_client`. `hud_range` modes: `hud hud_teams hud_cooldown
-killfeed scoreboard pause results dead spectate`.
+lobby_teams lobby_client lobby_map`. `lobby_map` scrolls the Match panel down to
+the Map section, which is the only way to photograph it — the panel scrolls and
+the section is below the fold at every size the game runs at. `hud_range` modes:
+`hud hud_teams hud_cooldown killfeed scoreboard pause results dead spectate`.
 
 **A trap worth knowing in `zsh`:** unquoted `$args` is not word-split, so passing
 several trailing arguments through a variable silently sends them as one string

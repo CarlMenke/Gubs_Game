@@ -79,6 +79,30 @@ check() {
     echo "ok"
 }
 
+# One more thing to find in the log a `check` has already written, named by the
+# same label. A second `check` would prove the same thing by running the whole
+# harness again, and the runs this is used on are the expensive ones — the Rust
+# playthrough loads a 43 MB `.glb` and its fifty textures before it does
+# anything at all.
+also() {
+    local name="$1" expect="$2"
+    local log="$LOG_DIR/${name// /_}.log"
+    checks=$((checks + 1))
+    printf '  %-32s ' "$name, and"
+    if [ ! -f "$log" ]; then
+        echo "FAIL (no log — did '$name' run?)"
+        failures=$((failures + 1))
+        return
+    fi
+    if ! grep -qF "$expect" "$log"; then
+        echo "FAIL (expected: $expect)"
+        sed 's/^/      /' "$log" | tail -20
+        failures=$((failures + 1))
+        return
+    fi
+    echo "ok"
+}
+
 echo "smoke: $ROOT"
 echo "smoke: $GODOT ($GODOT_VERSION)"
 echo
@@ -104,6 +128,16 @@ check "match rules" "match_rules: PASS" \
 # those is the absence of a call rather than a fault inside one.
 check "full playthrough" "playthrough: PASS" \
     "$GODOT" --headless --path "$GODOT_ROOT" tools/playthrough.tscn
+# The same walk again on the hand-made map, which is a different branch in
+# `arena.gd` from the first frame: no generation, an instanced scene bringing
+# its own environment, sun, collision and spawns, and a void height a metre or
+# two under the floor instead of forty-five (D-030, D-031). Two checks, because
+# they fail differently — the first says the whole flow still works on a static
+# map, the second says it was actually Rust that was built and not the island
+# quietly falling back to itself.
+check "rust playthrough" "playthrough: PASS" \
+    "$GODOT" --headless --path "$GODOT_ROOT" tools/playthrough.tscn -- rust
+also "rust playthrough" "arena: Rust built from"
 echo
 
 # These need a real window: Godot's headless driver uses the dummy rasteriser
@@ -154,6 +188,18 @@ check "walking with the keyboard" "walk PASS" \
 check "leaving a match cleanly" "leave PASS" \
     "$GODOT" --path "$GODOT_ROOT" --resolution 640x360 --script tools/snapshot.gd -- \
     res://tools/combat_range.tscn "$GODOT_LOG_DIR/leave.png" 200 leave
+# Rust's eight spawn pads, checked with the physics rather than with eyes: a ray
+# down onto layer 1 that has to find a floor under every marker, and a Gub-sized
+# capsule that has to fit where the Gub will stand. Rendered rather than
+# headless because the map's collision is built in `_ready` from world-space
+# triangles and the physics has to actually tick for any of it to be there —
+# and because the same run writes the top-down picture, which is the only way
+# anybody sees where the pads are. It also asserts the geometry imported at all
+# (over 90,000 triangles), so a `.glb` that silently failed to re-import fails
+# here rather than as a map that is missing half its containers.
+check "rust spawns and collision" "preview_map: PASS" \
+    "$GODOT" --path "$GODOT_ROOT" --resolution 900x1100 --script tools/snapshot.gd -- \
+    res://tools/preview_map.tscn "$GODOT_LOG_DIR/rust_top.png" 30 top
 # Walks the menu into a real match and asks Input.mouse_mode what happened. It
 # grabs the physical mouse for about a second on the way through, which is the
 # only way to prove the thing it proves: every other check here stands the arena

@@ -13,8 +13,8 @@ extends PanelContainer
 ## shared config exists to prevent.
 ##
 ## Rows are generated from a table rather than authored, for the same reason the
-## settings panel generates its own: eleven rows of label-control-readout is
-## eleven chances to forget a theme variation.
+## settings panel generates its own: a dozen rows of label-control-readout is a
+## dozen chances to forget a theme variation.
 
 ## Rows that only make sense under some configurations. Hiding them beats
 ## disabling them: a greyed-out "Friendly fire" in a free-for-all invites the
@@ -70,6 +70,7 @@ func _build() -> void:
 		1, func(v: float) -> String: return "%d Gubs" % int(v))
 
 	_section("Map")
+	_map_row()
 	_seed_row()
 
 
@@ -95,8 +96,17 @@ func _write_field(field: String, config: MatchConfig) -> void:
 	var value: Variant = config.get(field)
 	if control is OptionButton:
 		var picker := control as OptionButton
-		picker.selected = clampi(int(value) - int(entry.get("offset", 0)),
-			0, picker.item_count - 1)
+		# Most pickers stand for an int (an enum, or a count with an offset).
+		# The map picker stands for a string id, so it carries the id list that
+		# pairs with its items and is selected by lookup instead of arithmetic.
+		var ids: Array[String] = entry.get("ids", [] as Array[String])
+		if ids.is_empty():
+			picker.selected = clampi(int(value) - int(entry.get("offset", 0)),
+				0, picker.item_count - 1)
+		else:
+			# An id this build does not have would be a config that skipped
+			# `_clamp_all`; show the first map rather than nothing selected.
+			picker.selected = maxi(0, ids.find(String(value)))
 	elif control is CheckButton:
 		(control as CheckButton).set_pressed_no_signal(bool(value))
 	elif control is HSlider:
@@ -130,6 +140,9 @@ func _apply_visibility(config: MatchConfig) -> void:
 		config.win_condition == MatchConfig.WinCondition.KILL_LIMIT
 	_fields["lives"]["row"].visible = \
 		config.win_condition == MatchConfig.WinCondition.LIVES
+	# A seed only means something to a map that is grown from one. On a static
+	# map the row would offer to reroll an island nobody is going to see.
+	_fields["map_seed"]["row"].visible = MapCatalog.is_procedural(config.map)
 
 
 func _apply_editability() -> void:
@@ -149,7 +162,7 @@ func _apply_editability() -> void:
 
 ## Copy the current config, change one field, and push the whole thing. Sending
 ## the whole config rather than a delta is what `Net.update_config` expects, and
-## with twenty-one primitives it is a few hundred bytes.
+## with twenty-two primitives it is a few hundred bytes.
 func _push(field: String, value: Variant) -> void:
 	if _applying or not Net.is_host:
 		return
@@ -239,11 +252,47 @@ func _toggle(field: String, label_text: String) -> void:
 	toggle.toggled.connect(func(on: bool) -> void: _push(field, on))
 
 
+## Which map the match is played on. Above the seed row because it decides
+## whether the seed row is there at all.
+##
+## The picker deals in indices and the config deals in ids, and `MapCatalog`
+## keeps `ids()` and `display_names()` in the same order so the two can be
+## converted by position. It is not built from an enum for the reason
+## `MapCatalog` exists: a map's id has to survive being sent to a peer that may
+## not have the same list, and an ordinal does not.
+func _map_row() -> void:
+	var row := _row("Map")
+	# The one generated row with a name. The panel scrolls and this row is below
+	# the fold at every window size the game ships at, so `tools/ui_range.gd`
+	# has to be able to scroll to it to photograph it — and a row that nothing
+	# can find is a row no screenshot check will ever cover.
+	row.name = "MapRow"
+	var picker := OptionButton.new()
+	var names := MapCatalog.display_names()
+	for i in names.size():
+		picker.add_item(names[i], i)
+	picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(picker)
+
+	_fields["map"] = {"row": row, "control": picker, "ids": MapCatalog.ids(),
+		"format": func(_v: float) -> String: return ""}
+	picker.item_selected.connect(func(index: int) -> void:
+		var ids := MapCatalog.ids()
+		if index >= 0 and index < ids.size():
+			_push("map", ids[index]))
+
+
 ## The island is generated from this number and every client builds the same map
 ## from it (D-007), so it is worth showing rather than hiding: "we all got a bad
-## map" and "reroll it" are the same conversation.
+## map" and "reroll it" are the same conversation. Hidden entirely on a map that
+## is not generated — see `_apply_visibility`.
 func _seed_row() -> void:
 	var row := _row("Island seed")
+	# Named for the same reason `MapRow` is, and for one more: this row's
+	# *absence* is a feature, and "the seed row is hidden on a static map" is
+	# not a claim anything can check about a row it cannot find.
+	# `tools/playthrough.gd` checks it on both maps.
+	row.name = "MapSeedRow"
 	var value := Label.new()
 	value.theme_type_variation = "AccentLabel"
 	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL

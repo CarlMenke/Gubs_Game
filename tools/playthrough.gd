@@ -31,6 +31,17 @@ extends Node
 ## `--script` main loop: a script main loop is compiled before the autoloads are
 ## registered, so it cannot so much as name `Net` or `MatchState` without
 ## failing to parse (D-015).
+##
+## Pass a `MapCatalog` id after a `--` to play the whole thing on that map:
+##
+##   Godot --headless --path . tools/playthrough.tscn -- rust
+##
+## Everything above is the same run either way — the point is that the *joins*
+## do not care which map is loading, and the only way to know that is to walk
+## them again with a different one underneath. A static map takes a different
+## branch in `arena.gd` and brings its own environment, lights, collision and
+## spawns (D-030, D-031), so a few extra checks in `_stage_arena` look at
+## whichever of the two actually happened.
 
 ## Peer ids for the stand-in players. ENet hands out ids at random across the
 ## whole positive int range, so no band is truly safe; what these have to avoid
@@ -96,10 +107,25 @@ var _summary: Dictionary = {}
 ## which is emitted after the fade, with the busy flag already cleared — is
 ## waiting for the same moment a player would have pressed the button in.
 var _scene_ready_path: String = ""
+## Which map to play on. Taken from the command line rather than hard-coded so
+## the shipping run and the static-map run are one file: two copies of this
+## would drift, and the second copy is the one nobody would maintain.
+var _map: String = MapCatalog.DEFAULT
 
 
 func _ready() -> void:
-	print("playthrough: starting")
+	for arg: String in OS.get_cmdline_user_args():
+		if MapCatalog.is_valid(arg):
+			_map = arg
+		else:
+			# Loud rather than silently falling back to the island: a typo in a
+			# smoke-test line would otherwise pass, having tested nothing it was
+			# added to test.
+			print("  FAIL  '%s' is not a map id; known ids are %s"
+				% [arg, ", ".join(MapCatalog.ids())])
+			_failures += 1
+			_checks += 1
+	print("playthrough: starting on map '%s'" % _map)
 	# Cap the loop to the physics rate, exactly as `tools/snapshot.gd` does and
 	# for a sharper version of the same reason (D-012).
 	#
@@ -205,8 +231,14 @@ func _stage_host() -> bool:
 	settings.warmup_time = WARMUP_TIME
 	settings.spawn_protection = SPAWN_PROTECTION
 	settings.respawn_delay = RESPAWN_DELAY
+	# The map goes through the same host-side call as everything else, which
+	# means it also goes through `_clamp_all` — so an id the catalog does not
+	# know would come back as the island here rather than at the arena, and the
+	# check below is what notices.
+	settings.map = _map
 	Net.update_config(settings)
 	_check("warmup was shortened", Net.config.warmup_time, WARMUP_TIME)
+	_check("the map survived the config", Net.config.map, _map)
 
 	print("playthrough: session ok (offline host, peer 1, %d players, seed %d)" % [
 		Net.player_count(), Net.config.map_seed])
@@ -236,6 +268,35 @@ func _stage_lobby() -> bool:
 	# spend two minutes waiting for an arena nobody asked for.
 	if not _require("the host may start", Net.can_start_match()):
 		return false
+
+	# The map picker, read off the control for the same reason the roster is
+	# read off the label. A map that is in `MapCatalog` and not in the lobby's
+	# dropdown is a map only a config file can choose, and nothing else here
+	# would notice — `arena.gd` reads the catalog directly and would build it
+	# perfectly for a player who has no way to ask for it.
+	var row := lobby.find_child("MapRow", true, false)
+	if _require("the lobby has a map row", row != null):
+		var picker := _find_first(row,
+			func(node: Node) -> bool: return node is OptionButton) as OptionButton
+		if _require("the map row has a picker", picker != null):
+			var listed: Array[String] = []
+			for i in picker.item_count:
+				listed.append(picker.get_item_text(i))
+			_check("the picker lists every map in the catalog",
+				", ".join(listed), ", ".join(MapCatalog.display_names()))
+			_check("the picker is showing the map this match will build",
+				picker.get_item_text(picker.selected),
+				String(MapCatalog.get_entry(_map)["display_name"]))
+			print("playthrough: the lobby offers %s" % ", ".join(listed))
+
+	# And the seed row, which is the one control whose *absence* is the feature:
+	# a static map has no seed, and the lobby hides the row rather than greying
+	# it out (D-030).
+	var seed_row := lobby.find_child("MapSeedRow", true, false) as Control
+	if seed_row != null:
+		_check("the seed row is shown only for a generated map",
+			seed_row.visible, MapCatalog.is_procedural(_map))
+
 	print("playthrough: lobby ok (%d players, host can start)" % Net.player_count())
 	return true
 
@@ -281,8 +342,59 @@ func _stage_arena() -> bool:
 	if not _require("the arena instanced the HUD", _find_hud() != null):
 		return false
 
+	if not _stage_map(arena):
+		return false
+
 	print("playthrough: arena built in %d ms, %d spawns, %d gubs" % [
 		elapsed, arena.spawn_points.size(), MatchState.gubs.size()])
+	return true
+
+
+## Whichever of `arena.gd`'s two branches this map takes, taken properly.
+##
+## The generated branch and the static one produce the same handover and the
+## rest of this file cannot tell them apart, which is the point — but each one
+## has a way of half-working that the other does not. A procedural map with no
+## `IslandGenerator` is a map with no height oracle; a static map that loaded
+## and then quietly failed to build collision is a map every Gub falls through,
+## and it looks exactly like a map that loaded fine until somebody walks on it.
+func _stage_map(arena: Arena) -> bool:
+	var entry := MapCatalog.get_entry(_map)
+	if int(entry["kind"]) != MapCatalog.Kind.STATIC:
+		_check("the island was generated", arena.island != null, true)
+		_check("the island brought its own floor", MatchState.void_height,
+			MatchState.VOID_HEIGHT)
+		return true
+
+	# Named `Map` by `arena.gd`, not by the .tscn — that renaming is the
+	# contract, so it is what this looks for.
+	var map := arena.get_node_or_null("Map") as StaticMap
+	if not _require("the static map is in the tree as `Map`", map != null):
+		return false
+	# The scene brings its own lighting, and `arena.gd` must not have built the
+	# island's night over the top of it (D-009, D-030).
+	_check("the map brought an Environment",
+		map.get_node_or_null("Environment") is WorldEnvironment, true)
+	_check("the map brought a Sun",
+		map.get_node_or_null("Sun") is DirectionalLight3D, true)
+	_check("no moon was hung over a static map",
+		arena.get_node_or_null("Moon"), null)
+	_check("nothing generated ran", arena.island, null)
+
+	# The floor, on the layer everything else looks for. This is the check that
+	# would have caught a map that renders perfectly and cannot be stood on.
+	var body := map.get_node_or_null("Collision") as StaticBody3D
+	if not _require("the map built a collision body", body != null):
+		return false
+	_check("collision is on the world layer", body.collision_layer,
+		StaticMap.LAYER_WORLD)
+	_check("the map has geometry in it", map.triangles > 1000, true)
+	_check("the map has collision shapes", body.get_child_count() > 0, true)
+	_check("the match took the map's void height", MatchState.void_height,
+		map.void_height)
+
+	print("playthrough: static map '%s' — %d triangles, %d shapes, void at %.1f m" % [
+		_map, map.triangles, map.shapes, map.void_height])
 	return true
 
 
@@ -298,8 +410,28 @@ func _stage_warmup() -> bool:
 	_check("WARMUP came before PLAYING",
 		_phases.find(MatchState.Phase.WARMUP) < _phases.find(MatchState.Phase.PLAYING),
 		true)
-	print("playthrough: phase PLAYING after %.1f s" % [
-		float(Time.get_ticks_msec() - started) * 0.001])
+
+	# The floor holds. Warmup is the first stretch of the run in which anything
+	# has had time to fall, and this is the *local* Gub deliberately: it is the
+	# only one that simulates — the stand-ins are remote, so they run no gravity
+	# and would sit happily in mid-air over a map with no collision in it at all.
+	#
+	# Worth its own check because the failure is silent. A map whose collision
+	# never got built does not crash and does not print anything: every Gub
+	# falls, passes the void height, is killed, respawns, falls again, and the
+	# match plays out and reaches a results screen with the score looking
+	# roughly right. On Rust the collision is built at load from world-space
+	# triangles (D-031), which is a good deal more that can go wrong than
+	# "the terrain mesh has a shape under it".
+	var mine: Gub = MatchState.gubs.get(Net.local_id())
+	if _require("the local Gub is in the world", is_instance_valid(mine)):
+		_check("the local Gub is standing on the map", mine.is_on_floor(), true)
+		_check("the local Gub has not fallen through it",
+			mine.global_position.y > MatchState.void_height + 1.0, true)
+
+	print("playthrough: phase PLAYING after %.1f s, local Gub on the floor at %.2f m" % [
+		float(Time.get_ticks_msec() - started) * 0.001,
+		mine.global_position.y if is_instance_valid(mine) else NAN])
 	return true
 
 

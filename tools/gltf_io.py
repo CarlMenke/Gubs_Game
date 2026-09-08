@@ -5,6 +5,11 @@ image bytes, and repacking a whole document into a fresh single-buffer GLB with
 every buffer view rebuilt from scratch. Repacking (rather than appending) is what
 lets `decimate_assets.py` drop a 500k-triangle mesh and have the file actually
 shrink instead of carrying the dead original around.
+
+Two ways into the new buffer. `add_accessor` authors one from a numpy array, for
+geometry the tool has rewritten. `copy_accessor` moves one across untouched, for
+geometry it has only *kept* — which is what a pruning pass like
+`prepare_map.py` does to a hundred and fifty meshes it has no opinion about.
 """
 
 import json
@@ -126,6 +131,11 @@ class GltfBuilder(object):
         self.doc["bufferViews"] = []
         self.doc["accessors"] = []
         self.blob = bytearray()
+        # source id -> {old view index: new view index}, so a view shared by
+        # several accessors is copied once. The source `Gltf` is held alongside
+        # it purely so CPython cannot recycle its id() into another object.
+        self._copied = {}
+        self._sources = {}
 
     def _align(self, n=4):
         pad = (-len(self.blob)) % n
@@ -160,6 +170,44 @@ class GltfBuilder(object):
             a2 = arr.reshape(arr.shape[0], ncomp)
             acc["min"] = [float(v) for v in a2.min(axis=0)]
             acc["max"] = [float(v) for v in a2.max(axis=0)]
+        self.doc["accessors"].append(acc)
+        return len(self.doc["accessors"]) - 1
+
+    def copy_view(self, source, view_index):
+        """Copy one buffer view out of `source` verbatim, at most once.
+
+        `byteStride` and `target` ride along, so an interleaved view stays
+        interleaved and the accessors pointing into it keep their offsets.
+        """
+        memo = self._copied.setdefault(id(source), {})
+        if view_index in memo:
+            return memo[view_index]
+        self._sources[id(source)] = source
+        view = source.doc["bufferViews"][view_index]
+        new_index = self.add_view(source.view_bytes(view_index),
+                                  target=view.get("target"),
+                                  stride=view.get("byteStride"))
+        memo[view_index] = new_index
+        return new_index
+
+    def copy_accessor(self, source, index):
+        """Copy accessor `index` out of `source` with nothing re-derived.
+
+        `add_accessor` rebuilds an accessor from an array, which means it has
+        to reconstruct `componentType`, `min`/`max` and `normalized` from what
+        numpy happens to be holding. A pass that is *dropping* resources rather
+        than authoring them wants none of that: the exporter's own bounds and
+        component types are already right, and re-deriving them is a chance to
+        get them subtly wrong. This moves the bytes and leaves the description
+        alone.
+        """
+        acc = deepcopy(source.doc["accessors"][index])
+        if "bufferView" in acc:
+            acc["bufferView"] = self.copy_view(source, acc["bufferView"])
+        for part in ("indices", "values"):
+            block = acc.get("sparse", {}).get(part)
+            if block is not None:
+                block["bufferView"] = self.copy_view(source, block["bufferView"])
         self.doc["accessors"].append(acc)
         return len(self.doc["accessors"]) - 1
 

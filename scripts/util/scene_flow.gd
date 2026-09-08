@@ -125,8 +125,20 @@ func go_to_lobby() -> void:
 	await go_to(LOBBY)
 
 
+## The card names whichever map is about to be built. Both halves come from
+## `MapCatalog` rather than being written here, because the loading screen
+## claiming one map while `arena.gd` builds another is a bug nobody would think
+## to look for — and it is exactly what a second hard-coded string invites.
 func go_to_arena() -> void:
-	await go_to(ARENA, "WHISPERBLOOM HOLLOW", "Growing the island from seed %d" % Net.config.map_seed)
+	var entry := MapCatalog.get_entry(Net.config.map)
+	var hint := String(entry["loading_line"])
+	# Only a generated map has a seed worth naming, so the seed goes in only
+	# where the line asks for one. A static map's line is a sentence, not a
+	# format string, and formatting it anyway would print it verbatim with the
+	# seed nowhere.
+	if hint.contains("%d"):
+		hint = hint % Net.config.map_seed
+	await go_to(ARENA, String(entry["display_name"]).to_upper(), hint)
 
 
 ## Run whichever request arrived while we were busy. Only the most recent is

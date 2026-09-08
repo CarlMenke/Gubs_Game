@@ -1,6 +1,6 @@
 class_name Arena
 extends Node3D
-## Whisperbloom Hollow — the map, and the scene `SceneFlow.go_to_arena()` loads.
+## The map, whichever one it is — and the scene `SceneFlow.go_to_arena()` loads.
 ##
 ## This is the node that closes the loop between the world and the match:
 ## everything above it in `scripts/game` waits for exactly one call,
@@ -10,7 +10,12 @@ extends Node3D
 ## build the world, hand over a node to parent Gubs under and a list of places to
 ## put them, and then get out of the way.
 ##
-## The order of the build is load-bearing:
+## *Which* map is `Net.config.map`, an id into `MapCatalog`. It rides with the
+## roster the way the seed does, so every peer already knows the answer before
+## this scene loads, and there is exactly one branch on it here.
+##
+## **Procedural** (Whisperbloom Hollow) is generated on the spot, in an order
+## that is load-bearing:
 ##
 ##   1. **terrain**, because everything else asks it how high the ground is;
 ##   2. **landmarks**, because they are hand-placed and get first refusal on
@@ -22,9 +27,19 @@ extends Node3D
 ##   5. **torches**, from the spots the landmarks asked for;
 ##   6. **ambience**, which needs to know where the scatter put its trees.
 ##
-## Nothing here is replicated. Every peer builds the same island because every
-## peer builds it from `Net.config.map_seed`, which is part of the match config
-## and therefore already on every machine before this scene loads (D-007).
+## **Static** maps skip all of it. The scene owns its own environment, sun,
+## lights and collision, and it states its spawns instead of having them solved
+## — so `_build_environment` and the moon must not run for one, or a daylit
+## arena gets the island's moonlit night dropped over the top of it (D-009).
+## `scripts/world/static_map.gd` is the contract such a scene answers to.
+##
+## Both branches end the same way: containers built, `spawn_points` filled,
+## `MatchState` told where the floor is, and `register_arena` called.
+##
+## Nothing here is replicated either way. Every peer builds the same island
+## because every peer builds it from `Net.config.map_seed`, which is part of the
+## match config and therefore already on every machine before this scene loads
+## (D-007); every peer loading a static map loads the same file off disk.
 
 const ENVIRONMENT := "res://resources/config/arena_env.tres"
 
@@ -60,8 +75,30 @@ var _items: Node3D
 
 
 func _ready() -> void:
-	var map_seed := Net.config.map_seed
 	var started := Time.get_ticks_msec()
+	var entry := MapCatalog.get_entry(Net.config.map)
+
+	# The island's floor first, for both branches: `MatchState` is an autoload,
+	# so a static map's shallower void height would otherwise survive into the
+	# next match on a different map and start killing people in mid-air.
+	MatchState.set_void_height()
+
+	if int(entry["kind"]) == MapCatalog.Kind.STATIC:
+		_build_static(entry, started)
+	else:
+		_build_procedural(entry, started)
+
+	# The handover. Every peer calls this for itself; only the host acts on it,
+	# and it is what starts the warmup.
+	MatchState.register_arena(_players, spawn_points)
+
+
+# -------------------------------------------------------------- procedural ---
+
+## Whisperbloom Hollow, grown from the seed. The order is the one in the header
+## and every step of it depends on the one before it.
+func _build_procedural(entry: Dictionary, started: int) -> void:
+	var map_seed := Net.config.map_seed
 
 	_build_environment()
 	_build_containers()
@@ -86,16 +123,61 @@ func _ready() -> void:
 	_build_torches()
 	Ambience.build(self, island, scatter.canopy_points, map_seed)
 
-	print("arena: Whisperbloom Hollow built from seed %d in %d ms" % [
-		map_seed, Time.get_ticks_msec() - started])
+	print("arena: %s built from seed %d in %d ms" % [
+		entry["display_name"], map_seed, Time.get_ticks_msec() - started])
 	print("  %d props (~%dk triangles), %d spawns, %d torches" % [
 		scatter.instances, scatter.triangles / 1000, spawn_points.size(),
 		$Torches.get_child_count()])
 	print("  scatter %s" % scatter.counts)
 
-	# The handover. Every peer calls this for itself; only the host acts on it,
-	# and it is what starts the warmup.
-	MatchState.register_arena(_players, spawn_points)
+
+# ------------------------------------------------------------------ static ---
+
+## A hand-made map: instance it, and take its word for everything.
+##
+## Nothing generated runs here — no environment, no moon, no terrain, no
+## scatter, no ambience. The scene brings its own, which is the point of buying
+## one, and `StaticMap` is where the list of what it owes us is written down.
+func _build_static(entry: Dictionary, started: int) -> void:
+	_build_containers()
+
+	var path := String(entry["scene"])
+	var packed := load(path) as PackedScene
+	if packed == null:
+		# There is no world, and nothing here can make one. Said out loud and
+		# then survived rather than crashed on: `register_arena` still runs, so
+		# the match reaches a results screen instead of hanging behind a
+		# loading card that never goes away.
+		push_error("arena: map '%s' names a scene that will not load (%s)"
+			% [entry["id"], path])
+		return
+
+	var map := packed.instantiate()
+	# Renamed rather than left as whatever the designer saved the root as.
+	# `Arena/Map` is a path tools can rely on; "it is called what the .tscn is
+	# called" is not a contract.
+	map.name = "Map"
+	add_child(map)
+
+	var static_map := map as StaticMap
+	if static_map == null:
+		push_error("arena: the root of map '%s' is not a StaticMap, so nothing "
+			% entry["id"] + "can say where to spawn or where the void starts")
+		return
+
+	# Added to the tree first, deliberately: the markers are read in world
+	# space, and `global_transform` on a node outside the tree is a local
+	# transform wearing a disguise.
+	spawn_points = static_map.spawn_points()
+	# The map's own floor. A bought arena stands on the ground rather than
+	# floating over 45 m of nothing, and a Gub that steps off one should be dead
+	# before the fall gets boring.
+	MatchState.set_void_height(static_map.void_height)
+
+	print("arena: %s built from %s in %d ms" % [
+		entry["display_name"], path, Time.get_ticks_msec() - started])
+	print("  %d spawns; the scene supplies its own environment, lights and collision"
+		% spawn_points.size())
 
 
 # ------------------------------------------------------------- environment ---

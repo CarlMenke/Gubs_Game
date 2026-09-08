@@ -1,8 +1,10 @@
 # GUB
 
 A match-based third-person multiplayer game in Godot 4.7.2. You are a Gub — a
-small yellow alien — fighting on a floating enchanted-forest island with thrown
-spears that kill in one hit.
+small yellow alien — fighting with thrown spears that kill in one hit, on one of
+two maps: **Whisperbloom Hollow**, a floating enchanted-forest island grown from
+a seed, or **Rust**, a hand-made industrial yard under a hard sun. The host
+picks in the lobby.
 
 Spears are the whole fight. One lands, you die, and the thrower's hand is empty
 until it grows back, so an empty hand is the most useful thing on screen: it
@@ -206,8 +208,9 @@ and `tools/` is full of scenes for it:
 | `preview_assets`, `preview_anim`, `preview_grip` | the art, the clips, the spear in the hand |
 | `preview_ragdoll`, `ragdoll_stability` | how a corpse falls, and whether it survives |
 | `preview_sky` | the sky and environment |
-| `preview_island` | **the map** — nine framings, `match` for real Gubs, `hud` to keep the HUD |
-| `playthrough.tscn` | the whole flow, menu to results, 39 assertions, headless |
+| `preview_island` | **the island** — nine framings, `match` for real Gubs, `hud` to keep the HUD |
+| `preview_map` | **Rust** — top-down, side, or eye height on any spawn pad; `probe` prints the floor as ASCII. Checks every pad with the physics, and is in the gate |
+| `playthrough.tscn` | the whole flow, menu to results, headless. Add `-- rust` to play it on the static map |
 | `match_rules.tscn` | 60 assertions across 9 scoring scenarios, headless |
 | `net_loopback.tscn` | two real processes over a real socket. Not in the gate — it binds a port |
 | `inspect_scene.gd` | dump a scene's tree, clips, bones and triangle counts |
@@ -228,6 +231,7 @@ Both are committed, so you only need this if you change a source file:
 bash tools/build_gub.sh             # the Gub: eight Mixamo FBX → one .glb. Needs Blender 5.2
 python tools/decimate_assets.py     # spear, lure, mushroom. numpy, scipy, pillow, fast_simplification
 python tools/make_sfx.py            # needs numpy
+python tools/prepare_map.py         # needs numpy, pillow
 python tools/rig_report.py          # checks the Gub's rig; prints, changes nothing
 ```
 
@@ -245,6 +249,38 @@ clips go through the floor. After a rebuild, run
 `tools/rig_report.py` is how you tell whether a rig change helped, and is worth
 running after any change to the rig or to a source file. Sources in `assets/` are
 never modified; re-running any of these is always safe.
+
+**Maps are split raw/processed, and only the processed half is in the repository.**
+`tools/prepare_map.py` reads `assets/source/Rust/rust.glb` — a 337 MB Blender
+export of the Rust arena, 333 MB of which is fifty-two lossless 2K PNGs — and
+writes `art/maps/rust/rust.glb` at about 43 MB. It drops Blender's default cube
+and the scale-reference figure the map was blocked out against (along with the
+one animation clip, which only ever animated that figure), prunes everything
+left unreferenced, and re-encodes the textures as JPEG: base colour at 2048 q85,
+normal maps at 1024 q90 with no chroma subsampling, and the handful of normals
+covering more than 5% of the arena's surface area held at 2048. The one texture
+with a real alpha channel stays a PNG, because JPEG has nowhere to put it. The
+raw export is `.gitignore`d — it is over GitHub's 100 MB single-file limit — so
+it lives on the team's shared drive and only has to be on disk when the map is
+being regenerated. Geometry is untouched: the export is already 1 unit = 1 metre
+(D-002). The run prints the arena's true world bounds and its lowest vertex,
+which is where the match's void kill height comes from, and then re-reads what it
+wrote and checks it.
+
+The **textures Godot extracts back out** of that `.glb` are `.gitignore`d, and
+only `rust.glb` and `rust.glb.import` are committed. The importer is set to
+Extract, which is what gets each of the 51 images its own VRAM compression — but
+it writes all 41 MB of them out beside the file they came from, which would
+nearly double the map's cost in the repository to store nothing new. They come
+back in about half a minute from the import step that `tools/smoke_test.sh` runs
+first and that the editor runs on a fresh clone, so there is nothing to do by
+hand.
+
+**The map itself is four nodes and eight coordinates.** `scenes/world/maps/rust.tscn`
+instances the `.glb` untouched; `scripts/world/static_map.gd` builds the
+collision and puts back the back-face culling at load, because neither survives
+the import (**D-031**). `tools/preview_map.gd` is how you look at it and how the
+gate checks its spawn pads.
 
 ---
 

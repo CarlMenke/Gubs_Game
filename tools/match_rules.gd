@@ -357,6 +357,20 @@ func _run_config_validation() -> void:
 		"time_limit": 0})
 	_check("a timed match gets a clock", config.time_limit > 0, true)
 
+	# The map is the one field that is a *key into a table* rather than a number
+	# with a range, and an id this build has never heard of would send
+	# `arena.gd` looking for a scene that is not there, mid-`_ready`, with no
+	# way to recover. So it clamps the same way everything else does.
+	config.apply_dict({"map": "a map that does not exist"})
+	_check("an unknown map falls back to the default", config.map,
+		MapCatalog.DEFAULT)
+	_check("and the default is a real map", MapCatalog.is_valid(config.map), true)
+	config.apply_dict({"map": 7})
+	_check("a number cannot become a map", config.map, MapCatalog.DEFAULT)
+	for id: String in MapCatalog.ids():
+		config.apply_dict({"map": id})
+		_check("the catalog's own id '%s' survives" % id, config.map, id)
+
 	# Regression guard: lure_fuse defaulted to 0.35 while its own range started
 	# at 0.5, so every fresh config was silently raised and the declared default
 	# was never the value anyone played with.
@@ -371,6 +385,7 @@ func _run_config_validation() -> void:
 	host.kill_limit = 23
 	host.friendly_fire = true
 	host.map_seed = 987654
+	host.map = MapCatalog.ids()[MapCatalog.ids().size() - 1]
 	host.lure_radius = 12.5
 	var arrived := MatchConfig.new()
 	arrived.apply_dict(host.to_dict())
@@ -378,6 +393,11 @@ func _run_config_validation() -> void:
 	_check("kill limit survives", arrived.kill_limit, host.kill_limit)
 	_check("friendly fire survives", arrived.friendly_fire, host.friendly_fire)
 	_check("the map seed survives", arrived.map_seed, host.map_seed)
+	# The host picks the map in the lobby, so it has to reach every client the
+	# same way the seed does — the whole roster is looking at one arena.
+	_check("the map survives", arrived.map, host.map)
+	_check("and the map is in the replicated key list",
+		host.to_dict().has("map"), true)
 	_check("floats survive", arrived.lure_radius, host.lure_radius)
 
 	var copy := host.duplicate_config()

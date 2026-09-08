@@ -1,0 +1,92 @@
+[gd_scene load_steps=4 format=3 uid="uid://bgubmaprust01"]
+
+; Rust — the arena's second map, and the first hand-made one (D-029, D-030).
+;
+; Almost nothing is authored here. The geometry is the imported `.glb` exactly
+; as `tools/prepare_map.py` wrote it, and `scripts/world/static_map.gd` does the
+; two things the import cannot: it bakes world-space trimesh collision onto
+; physics layer 1, and it puts back the back-face culling the importer turned
+; off. Neither is expressible in a scene file, which is why this one is four
+; nodes and a list of coordinates.
+;
+; The four nodes are the contract in `static_map.gd`:
+;
+;   Environment  a daylit `WorldEnvironment`, because `arena.gd` builds none for
+;                a static map and the island's is a torch-lit night (D-009).
+;   Sun          the key light, and the only light on the map. There is no
+;                `Lights` node: the arena is outdoors under a 50-degree sun and
+;                the containers that do have interiors are open at one end.
+;   Geometry     the `.glb`, instanced whole and never edited.
+;   Spawns       eight `Marker3D`s on the main walkable plane, each facing the
+;                middle of the arena. Their heights differ because the yard is
+;                not flat: each pad sits 0.12 m — the island's SPAWN_LIFT —
+;                above its own measured floor, which runs from 1.59 to 1.82.
+;
+; The pads are checked rather than trusted. `tools/preview_map.gd` casts a ray
+; down from each one and stands a Gub-sized capsule on it, and
+; `tools/smoke_test.sh` runs that as a gate — so a pad that ends up inside a
+; shipping container fails a build rather than being discovered by a player.
+
+[ext_resource type="Script" path="res://scripts/world/static_map.gd" id="1_static_map"]
+[ext_resource type="Environment" path="res://resources/config/rust_env.tres" id="2_rust_env"]
+[ext_resource type="PackedScene" path="res://art/maps/rust/rust.glb" id="3_rust_glb"]
+
+[node name="Rust" type="Node3D"]
+script = ExtResource("1_static_map")
+void_height = -13.0
+
+[node name="Environment" type="WorldEnvironment" parent="."]
+environment = ExtResource("2_rust_env")
+
+; Warm, high and hard, and the only light on the map. The basis below is what
+; `looking_at` gives for a sun 50 degrees above the horizon and roughly over the
+; north-west corner — high enough that nothing casts a shadow across half the
+; arena, off-axis enough that every container still has a lit face and a dark
+; one. Serialised ROW-major, which is how a `.tscn` stores a `Transform3D`;
+; writing the three axes out as columns instead reads back as the inverse
+; rotation and aims the sun at the sky.
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.62926, -0.59535, 0.4996, 0, 0.64285, 0.766, -0.77722, -0.48201, 0.4045, -1, 24, -5)
+light_color = Color(1, 0.94, 0.85, 1)
+light_energy = 1.35
+light_specular = 0.4
+shadow_enabled = true
+directional_shadow_mode = 1
+directional_shadow_max_distance = 90.0
+directional_shadow_blend_splits = true
+
+[node name="Geometry" parent="." instance=ExtResource("3_rust_glb")]
+
+[node name="Spawns" type="Node3D" parent="."]
+
+; 0  north-west corner, behind the long container row
+[node name="Spawn0" type="Marker3D" parent="Spawns"]
+transform = Transform3D(-0.82693, 0, -0.56231, 0, 1, 0, 0.56231, 0, -0.82693, -18, 1.854, -30)
+
+; 1  the north yard, the most open ground on the map
+[node name="Spawn1" type="Marker3D" parent="Spawns"]
+transform = Transform3D(-0.99887, 0, -0.04757, 0, 1, 0, 0.04757, 0, -0.99887, -2, 1.854, -26)
+
+; 2  north-east, looking down the yard at the tower
+[node name="Spawn2" type="Marker3D" parent="Spawns"]
+transform = Transform3D(-0.91532, 0, 0.40274, 0, 1, 0, -0.40274, 0, -0.91532, 10, 1.85, -30)
+
+; 3  east wall, on the raised slab (its floor is 9 cm above the rest)
+[node name="Spawn3" type="Marker3D" parent="Spawns"]
+transform = Transform3D(0.17379, 0, 0.98478, 0, 1, 0, -0.98478, 0, 0.17379, 16, 1.943, -2)
+
+; 4  south-east, the widest sightline of the eight at 21 m
+[node name="Spawn4" type="Marker3D" parent="Spawns"]
+transform = Transform3D(0.79436, 0, 0.60745, 0, 1, 0, -0.60745, 0, 0.79436, 12, 1.845, 12)
+
+; 5  south-west, past the low wall
+[node name="Spawn5" type="Marker3D" parent="Spawns"]
+transform = Transform3D(0.88583, 0, -0.46401, 0, 1, 0, 0.46401, 0, 0.88583, -12, 1.71, 16)
+
+; 6  west wall, in the tower's afternoon shadow
+[node name="Spawn6" type="Marker3D" parent="Spawns"]
+transform = Transform3D(0.05872, 0, -0.99827, 0, 1, 0, 0.99827, 0, 0.05872, -18, 1.854, -4)
+
+; 7  west wall again, half the map further north
+[node name="Spawn7" type="Marker3D" parent="Spawns"]
+transform = Transform3D(-0.60745, 0, -0.79436, 0, 1, 0, 0.79436, 0, -0.60745, -18, 1.854, -18)

@@ -31,7 +31,10 @@ enum Phase { IDLE, WARMUP, PLAYING, POST_MATCH }
 
 const GUB_SCENE := preload("res://scenes/player/gub.tscn")
 
-## Anything below this has left the island and is not coming back.
+## Anything below this has left the island and is not coming back. It is the
+## *default* floor rather than the only one: -45 is a property of a floating
+## island with a deep rocky underside, and a ground-level static map wants its
+## floor a few metres down instead. See `set_void_height`.
 const VOID_HEIGHT := -45.0
 ## A fall that ends in the void still counts as a death, but the kill is only
 ## credited to another player if they were the last to touch you this recently.
@@ -44,6 +47,9 @@ const ARENA_READY_TIMEOUT := 25.0
 
 var phase: Phase = Phase.IDLE
 var time_left: float = 0.0
+## The floor the arena declared for the map currently loaded. Set by `arena.gd`
+## in its `_ready`, before `register_arena`, and reset with everything else.
+var void_height: float = VOID_HEIGHT
 
 ## peer_id -> {kills, deaths, lives_left, alive, respawn_at, last_attacker,
 ##             last_attacker_at}
@@ -75,6 +81,15 @@ func _now() -> float:
 
 
 # ------------------------------------------------------------------- arena ---
+
+## Tell the match where the bottom of this map is. Called by `arena.gd` for
+## every map — with the island's default for a procedural one, and with the
+## scene's own `void_height` for a static one — because `MatchState` is an
+## autoload and a floor left over from the last map is a floor that is wrong for
+## this one.
+func set_void_height(height: float = VOID_HEIGHT) -> void:
+	void_height = height
+
 
 ## Called by the arena once its geometry and spawn points exist. Every peer does
 ## this for itself; only the host acts on it.
@@ -181,6 +196,7 @@ func reset() -> void:
 	_arena_ready_deadline = 0.0
 	_finished = false
 	time_left = 0.0
+	void_height = VOID_HEIGHT
 	_set_phase(Phase.IDLE)
 
 
@@ -294,7 +310,7 @@ func _tick_void() -> void:
 		var gub: Gub = gubs[peer_id]
 		if not is_instance_valid(gub) or not gub.alive:
 			continue
-		if gub.global_position.y > VOID_HEIGHT:
+		if gub.global_position.y > void_height:
 			continue
 		var entry: Dictionary = stats.get(peer_id, {})
 		# If someone lured or spooked you off the edge moments ago, they get it.
